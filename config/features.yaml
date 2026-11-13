@@ -1,0 +1,6 @@
+# Kaun se features chalu hain. Naya feature: code me register karein, phir yahan true karein.
+features:
+  department_guide: true   # departments ki jaankari aur symptom se department sujhana
+  appointments: true       # slot dekhna, booking, cancel
+  hospital_faq: true       # registration, documents, visiting hours jaise sawaal
+  lab_reports: false       # NAYA: lab report ready hai ya nahin (testing poori hone tak band)

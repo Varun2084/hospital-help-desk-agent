@@ -1,0 +1,116 @@
+# Departments ki list. DEMO DATA: building, floor, timings aur slots kalpanik hain.
+# Asli use se pehle hospital ki official website se milayein.
+#
+# Naya department jodna  : neeche ek naya block jodein (id unique ho), phir tests chalayein.
+# Department band karna  : active: false karein (delete nahin), taaki purani appointments sahi rahein.
+
+departments:
+  - id: general_medicine
+    name: General Medicine
+    name_hi: सामान्य चिकित्सा
+    building: Main OPD Block
+    floor: Ground
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-13:00"
+    slot_minutes: 30
+    keywords: [fever, cough, cold, weakness, bukhar, khansi, kamzori, बुखार, खांसी]
+    active: true
+
+  - id: cardiology
+    name: Cardiology
+    name_hi: हृदय रोग विभाग
+    building: Cardio-Neuro Centre
+    floor: "1"
+    opd_days: [Mon, Wed, Fri]
+    opd_hours: "09:00-12:00"
+    slot_minutes: 30
+    keywords: [heart, palpitation, blood pressure, bp, dil, dhadkan, दिल, धड़कन]
+    active: true
+
+  - id: neurology
+    name: Neurology
+    name_hi: तंत्रिका रोग विभाग
+    building: Cardio-Neuro Centre
+    floor: "2"
+    opd_days: [Tue, Thu, Sat]
+    opd_hours: "09:00-12:00"
+    slot_minutes: 30
+    keywords: [headache, migraine, seizure, numbness, sir dard, chakkar, सिरदर्द, चक्कर]
+    active: true
+
+  - id: orthopaedics
+    name: Orthopaedics
+    name_hi: हड्डी रोग विभाग
+    building: Main OPD Block
+    floor: "1"
+    opd_days: [Mon, Tue, Wed, Thu, Fri]
+    opd_hours: "08:30-12:30"
+    slot_minutes: 20
+    keywords: [bone, fracture, joint pain, back pain, knee, haddi, ghutna, kamar dard, हड्डी, घुटना]
+    active: true
+
+  - id: ophthalmology
+    name: Ophthalmology (Eye)
+    name_hi: नेत्र रोग विभाग
+    building: Eye Centre
+    floor: Ground
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-12:00"
+    slot_minutes: 20
+    keywords: [eye, vision, blurred, aankh, nazar, आंख, नज़र]
+    active: true
+
+  - id: ent
+    name: ENT (Ear, Nose, Throat)
+    name_hi: नाक, कान, गला विभाग
+    building: Main OPD Block
+    floor: "2"
+    opd_days: [Tue, Thu, Sat]
+    opd_hours: "09:00-12:00"
+    slot_minutes: 20
+    keywords: [ear, nose, throat, hearing, kaan, gala, naak, कान, गला]
+    active: true
+
+  - id: dermatology
+    name: Dermatology (Skin)
+    name_hi: त्वचा रोग विभाग
+    building: Main OPD Block
+    floor: "3"
+    opd_days: [Mon, Wed, Fri]
+    opd_hours: "09:00-12:00"
+    slot_minutes: 15
+    keywords: [skin, rash, itching, acne, khujli, chamdi, त्वचा, खुजली]
+    active: true
+
+  - id: paediatrics
+    name: Paediatrics (Children)
+    name_hi: बाल रोग विभाग
+    building: Mother and Child Block
+    floor: Ground
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-12:00"
+    slot_minutes: 20
+    keywords: [child, baby, infant, bachcha, बच्चा, शिशु]
+    active: true
+
+  - id: psychiatry
+    name: Psychiatry
+    name_hi: मनोरोग विभाग
+    building: Main OPD Block
+    floor: "4"
+    opd_days: [Tue, Fri]
+    opd_hours: "09:00-12:00"
+    slot_minutes: 30
+    keywords: [anxiety, depression, sleep, stress, tanav, neend, तनाव, नींद]
+    active: true
+
+  - id: dental
+    name: Dental Surgery
+    name_hi: दंत चिकित्सा
+    building: Dental Centre
+    floor: "1"
+    opd_days: [Mon, Wed, Fri]
+    opd_hours: "09:00-12:00"
+    slot_minutes: 20
+    keywords: [tooth, teeth, gums, daant, दांत]
+    active: false   # Example: is department ki OPD abhi band hai (renovation)
