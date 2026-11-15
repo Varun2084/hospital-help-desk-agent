@@ -40,7 +40,7 @@ reception (coordinator, emergency guardrail)
 python -m venv .venv && source .venv/bin/activate     # Windows: py -3.12 -m venv .venv
 pip install -r requirements.txt                       # Windows: .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 cp .env.example .env              # add your GOOGLE_API_KEY
-pytest -q                         # 60 tests, no API key needed
+pytest -q                         # 66 tests, no API key needed
 adk web                           # chat in the browser, pick hospital_agent
 python run_demo.py                # or chat in the terminal
 ```
@@ -51,7 +51,7 @@ The default model is `gemini-3.5-flash-lite`; change it with `HOSPITAL_MODEL` in
 
 | Check | Result |
 | --- | --- |
-| Unit and flow tests (config, tools, booking rules, safety, feature wiring) | 58 passed |
+| Unit and flow tests (config, tools, booking rules, safety, feature wiring) | 64 passed |
 | End-to-end booking through the real ADK Runner with a scripted model, no API key | 2 passed |
 | Live Gemini conversation and eval set (`adk web`, `adk eval`) | Add your numbers here |
 

@@ -46,3 +46,10 @@ topics:
       Hospital pharmacy OPD block ke ground floor par hai (demo location).
     source: demo
     verified_on: 2026-11-13
+  - id: radiology
+    keywords: [x-ray, xray, x ray, ultrasound, ct scan, mri, radiology, एक्स-रे]
+    answer: >-
+      X-ray, ultrasound, CT aur MRI ke liye pehle doctor ki parchi (request slip) chahiye.
+      Parchi ke saath Radiology counter par jaakar samay lein. Bina parchi ke jaanch nahin hoti.
+    source: demo
+    verified_on: 2026-11-15

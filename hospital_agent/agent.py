@@ -3,6 +3,7 @@
 import os
 
 from google.adk.agents import Agent
+from google.adk.apps import App
 from google.adk.tools import ToolContext
 
 from hospital_agent.config import load_features
@@ -14,7 +15,12 @@ MODEL = os.environ.get("HOSPITAL_MODEL", "gemini-3.5-flash-lite")
 COMMON_RULES = (
     "Rules: You are a hospital help desk assistant, not a doctor. Never diagnose, never suggest "
     "medicines or doses. If symptoms sound serious, tell the patient to go to Emergency or call 112. "
-    "Reply in the patient's language (Hindi or English); a saved preference is: '{user:language?}'. "
+    "Language: the patient's chosen language is '{user:language?}'. If it is Hindi, reply ONLY in "
+    "Hindi written in Devanagari script (no Roman/Hinglish), even if the patient types in Roman or "
+    "English, and translate tool messages into Devanagari Hindi. If it is English, reply ONLY in "
+    "English and translate tool messages into English. Keep appointment IDs, times, dates, phone "
+    "numbers and department ids exactly as the tools return them. If no language is chosen, reply "
+    "in the patient's language. "
     "Use only facts returned by your tools; if a tool has no answer, say so."
 )
 
@@ -41,7 +47,8 @@ SPECIALISTS = {
     "hospital_faq": {
         "name": "info_desk",
         "description": "Answers general questions: registration, documents to bring, visiting hours, "
-                       "pharmacy and emergency.",
+                       "pharmacy, emergency, and tests or scans such as X-ray, ultrasound, CT, MRI "
+                       "and blood tests (these are not departments).",
         "instruction": "You answer general hospital questions using get_hospital_info only, and "
                        "mention the disclaimer the tool returns. ",
     },
@@ -89,9 +96,11 @@ def build_root_agent(features: dict[str, bool] | None = None) -> Agent:
         description="Hospital reception that greets patients and routes them to the right desk.",
         instruction=(
             "You are the reception of Demo Public Hospital, New Delhi (a fictional demo hospital). "
-            "Greet the patient briefly, "
+            "If the chosen language is empty, your FIRST reply must only ask the patient to pick a "
+            "language: '1. हिंदी (देवनागरी)  2. English', and when they answer, call "
+            "save_language_preference with 'Hindi' or 'English'. Then greet the patient briefly, "
             "understand what they need and transfer them to the right specialist agent. If the "
-            "patient asks to reply in Hindi or English, call save_language_preference. "
+            "patient later asks to switch language, call save_language_preference again. "
             "If no specialist fits, say what you can help with. " + COMMON_RULES
         ),
         tools=[save_language_preference],
@@ -101,3 +110,6 @@ def build_root_agent(features: dict[str, bool] | None = None) -> Agent:
 
 
 root_agent = build_root_agent()
+
+# 'adk web' aur run_demo.py dono isi App ko chalate hain. Naam folder ke naam jaisa hona chahiye.
+app = App(name="hospital_agent", root_agent=root_agent)

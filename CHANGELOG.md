@@ -2,6 +2,14 @@
 
 Har badlaav yahan likhein: kya badla, kyun, aur kaun se tests jode.
 
+## 0.5.0
+- Shuru me bhasha ka menu: 1. हिंदी (देवनागरी), 2. English. Chuni bhasha session state `user:language` me.
+- Saare agents chuni hui bhasha me hi jawab dete hain; Hindi chuni ho to sirf Devanagari.
+- Emergency aur self-harm ke tay sandesh bhi chuni hui bhasha me (model ke bina).
+- `adk web` me bhasha na chuni ho to reception pehle bhasha poochhta hai.
+- FAQ me radiology / X-ray ka jawab; info_desk ab X-ray, scan aur tests ke sawaal leta hai.
+- `app = App(...)` jo `adk web` aur `run_demo.py` dono chalate hain. Tests 60 se 66.
+
 ## 0.4.0 (technical review ke baad)
 - Booking/cancel ab do kadam me: `request_booking` / `request_cancellation` sirf arzi banate hain, `confirm_action`
   patient ke naye sandesh me 'haan' dekh kar hi likhta hai. Purane `book_appointment(confirmed=True)` aur

@@ -49,6 +49,18 @@ SELF_HARM_MESSAGE = (
     "You are not alone. Please call Tele-MANAS at 14416 (24x7, free), or 112 if you are in danger."
 )
 
+# Patient ne Hindi (देवनागरी) chuni ho to wahi tay sandesh Devanagari me.
+EMERGENCY_MESSAGE_HI = (
+    "यह इमरजेंसी हो सकती है। अभी तुरंत 112 पर कॉल करें या सबसे नज़दीकी अस्पताल की इमरजेंसी में जाएँ। "
+    "इमरजेंसी के लिए अपॉइंटमेंट की ज़रूरत नहीं होती।"
+)
+SELF_HARM_MESSAGE_HI = (
+    "आप जो महसूस कर रहे हैं, वह सुनकर मुझे चिंता है। आप अकेले नहीं हैं। अभी टेली-मानस हेल्पलाइन 14416 पर "
+    "बात करें (24x7, मुफ़्त), या ख़तरा हो तो 112 पर कॉल करें।"
+)
+EMERGENCY_LINE_HI = "इमरजेंसी? अभी 112 पर कॉल करें।"
+EMERGENCY_LINE_EN = "In an emergency, call 112 now."
+
 
 def _found(pattern: str, text: str) -> bool:
     """Pattern mila aur uske aage-peechhe inkaar ('no ...', '... nahi hai') nahin hai."""
@@ -72,7 +84,12 @@ def detect_risk(text: str) -> str | None:
     return None
 
 
-def risk_message(risk: str) -> str:
+def risk_message(risk: str, language: str | None = None) -> str:
+    """Tay sandesh. language='Hindi' ho to Devanagari, warna Hindi+English dono."""
+    if language == "Hindi":
+        return SELF_HARM_MESSAGE_HI if risk == "self_harm" else EMERGENCY_MESSAGE_HI
+    if language == "English":  # sirf English wali line
+        return (SELF_HARM_MESSAGE if risk == "self_harm" else EMERGENCY_MESSAGE).split("\n")[-1]
     return SELF_HARM_MESSAGE if risk == "self_harm" else EMERGENCY_MESSAGE
 
 
@@ -91,7 +108,9 @@ def emergency_guardrail(callback_context, llm_request) -> LlmResponse | None:
     if risk is None:
         return None
     logger.warning("event=guardrail outcome=%s", risk)
-    return LlmResponse(content=types.Content(role="model", parts=[types.Part(text=risk_message(risk))]))
+    state = getattr(callback_context, "state", None) or {}
+    language = state.get("user:language")  # patient ki chuni hui bhasha
+    return LlmResponse(content=types.Content(role="model", parts=[types.Part(text=risk_message(risk, language))]))
 
 
 def mask_phone(phone: str) -> str:
