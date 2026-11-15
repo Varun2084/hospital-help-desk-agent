@@ -1,0 +1,48 @@
+# Aam sawaalon ke jawab (FAQ). DEMO DATA: sab jaankari kalpanik hai.
+# Asli deployment me har jawab hospital ke official source se lein, "source" bharein
+# aur "verified_on" me woh tareekh likhein jab jawab aakhri baar jaancha gaya.
+
+hospital_name: Demo Public Hospital, New Delhi
+disclaimer: >-
+  Yeh ek demo project hai. Timings aur niyam kalpanik hain; asli jaankari ke liye
+  hospital ki official website ya helpdesk se puchhein.
+
+helpdesk: Helpdesk counter, Main OPD Block, ground floor (demo)
+
+topics:
+  - id: registration
+    keywords: [registration, register, card, uhid, panjikaran, पंजीकरण]
+    answer: >-
+      Naye patient ko pehle registration counter ya online portal par registration karna hota hai.
+      Registration ke baad ek patient ID milti hai, jo har visit par chahiye.
+    source: demo
+    verified_on: 2026-11-13
+
+  - id: documents
+    keywords: [document, documents, id proof, aadhaar, kagaz, दस्तावेज़]
+    answer: >-
+      Ek photo ID (jaise Aadhaar), purani reports aur dawaiyon ki list saath laayein.
+    source: demo
+    verified_on: 2026-11-13
+
+  - id: visiting_hours
+    keywords: [visiting, visitor, milne, ward, मिलने]
+    answer: >-
+      Ward me visitors ke liye shaam 4 se 6 baje (demo timing). Ek samay par ek attendant pass ke saath.
+    source: demo
+    verified_on: 2026-11-13
+
+  - id: emergency
+    keywords: [emergency, casualty, ambulance, aapatkal, आपातकाल]
+    answer: >-
+      Emergency 24x7 khuli rehti hai aur iske liye appointment nahin chahiye. Jaan ka khatra ho to
+      turant 112 par call karein.
+    source: demo
+    verified_on: 2026-11-13
+
+  - id: pharmacy
+    keywords: [pharmacy, medicine, dawai, chemist, दवाई]
+    answer: >-
+      Hospital pharmacy OPD block ke ground floor par hai (demo location).
+    source: demo
+    verified_on: 2026-11-13
