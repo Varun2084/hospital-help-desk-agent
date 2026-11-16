@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OPD Sahayak</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <img src="/static/logo.svg" alt="" class="logo">
+      <div>
+        <div class="name">OPD Sahayak</div>
+        <div class="sub" data-t="sub">AI Help Desk</div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="ghost" id="langBtn" hidden></button>
+      <button class="ghost" id="newBtn" hidden data-t="new">नई बातचीत</button>
+    </div>
+  </header>
+
+  <div class="sos" role="note">
+    <span class="dot"></span>
+    <span data-t="sos">इमरजेंसी? अभी <b>112</b> पर कॉल करें · Emergency? Call <b>112</b> now</span>
+  </div>
+
+  <main id="welcome" class="welcome">
+    <img src="/static/logo.svg" alt="" class="hero-logo">
+    <h1>नमस्ते · Welcome</h1>
+    <p class="lead">अपनी भाषा चुनें · Choose your language</p>
+    <div class="langs">
+      <button class="lang" data-lang="Hindi"><span class="big">हिंदी</span><span class="small">देवनागरी में बातचीत</span></button>
+      <button class="lang" data-lang="English"><span class="big">English</span><span class="small">Chat in English</span></button>
+    </div>
+    <ul class="can">
+      <li>🏥 <span>सही विभाग · Right department</span></li>
+      <li>📅 <span>OPD अपॉइंटमेंट · OPD appointments</span></li>
+      <li>ℹ️ <span>अस्पताल की जानकारी · Hospital info</span></li>
+    </ul>
+  </main>
+
+  <main id="chat" class="chat" hidden>
+    <div id="log" class="log" aria-live="polite"></div>
+    <div id="chips" class="chips"></div>
+    <form id="form" class="composer" autocomplete="off">
+      <textarea id="input" rows="1" maxlength="1000" required></textarea>
+      <button id="send" class="send" aria-label="Send">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 11.5 20 4l-7.5 17-2-7.5L3 11.5z" fill="currentColor"/></svg>
+      </button>
+    </form>
+  </main>
+
+  <footer class="foot" data-t="foot">यह डॉक्टर नहीं है और बीमारी या दवा नहीं बताता। · This is not a doctor and does not diagnose.</footer>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

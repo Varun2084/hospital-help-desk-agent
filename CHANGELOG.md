@@ -2,6 +2,58 @@
 
 Har badlaav yahan likhein: kya badla, kyun, aur kaun se tests jode.
 
+## 0.8.0 (Confirm button aur HIS sandbox)
+- **Confirm button:** model ab kuch pakka nahin kar sakta (`confirm_action` tool hata). Model sirf arzi banata hai;
+  web app exact details ka card dikhata hai (hospital, department, tareekh, samay, "Confirmation pending") aur
+  "Confirm appointment" / "Discard request" button. Backend jaanchta hai: arzi isi patient + session ki,
+  card wali exact arzi (fingerprint), pending aur samay ke andar, phir HIS me slot ki taaza haalat. Terminal me
+  bhi wahi, ek alag prompt se. Chat me "ok" / "haan" likhne se ab kuch nahin hota.
+- Button ka nateeja session me likha jaata hai, taaki agle turn me agent ko pata ho.
+- Bug fix: reception "Demo Public Hospital" bol raha tha jabki header me Rewa tha. Ab har agent ka hospital naam config se.
+- **HIS adapter:** `hospital_agent/his/` (contract + LocalHIS + HttpHIS). Slot, booking aur cancel ab isi se.
+  Arzi ki id = idempotency key. Timeout par `in_progress`; dobara Confirm par HIS se key se dhoondh kar wahi booking.
+- **HIS sandbox:** `python -m his_sandbox` (FastAPI, synthetic data, fault injection).
+- **Demo:** `python scripts/demo_flows.py`: normal booking, ek slot par do patient, timeout ke baad recovery.
+- Purane `hospital.db` me naya column apne-aap judta hai. Tests 94 se 108.
+
+## 0.7.2 (code cleanup, vyavhaar wahi)
+- `confirm_action` apni file `tools/actions.py` me; booking, cancel aur registration ke `complete_*`
+  functions ek `HANDLERS` table se bulaye jaate hain. Function ke andar ka import (circular import se bachav) hata.
+- Saajhi cheezein (`now`, `today`, `error`, `PHONE_PATTERN`, `create_pending_action`) `tools/common.py` me,
+  public naamon ke saath. Doosri file se `_` wale private naam import nahin hote.
+- `registration.py` me beech ka `import json` upar; `tests/test_tools.py` me `import pytest` upar.
+- Kuch "kya" batane wale comments hataye; "kyun" wale rakhe. Tests 94, sab pass.
+
+## 0.7.0
+- Naya feature `registration`: naye patient ka registration (naam, umar, gender, phone, shahar; 18 se kam
+  ho to guardian). Booking jaisa do kadam ka flow; DEMO- patient ID. Aadhaar ya bimari ki jaankari nahin.
+  Wahi naam + phone dobara aaye to wahi ID.
+- `confirm_action` ab booking, cancel aur registration teeno sambhalta hai, aur har kaam ka feature flag jaanchta hai.
+- Hospital profile: `config_rewa/` (Super Speciality Hospital, Rewa, UNOFFICIAL DEMO). Departments
+  hospital ki public website se; anumaan wali baaton par "pushti baaki". `.env` me `HOSPITAL_CONFIG_DIR` se chunein.
+- Browser app hospital ka naam aur disclaimer config se dikhata hai (`/api/info`).
+- Tests 78 se 94: registration (12), profiles (3), web info (1).
+
+## 0.6.1
+- Bug fix: "रजिस्ट्रेशन कैसे करें?" ka jawab nahin milta tha, kyunki FAQ me sirf "पंजीकरण" tha.
+  FAQ aur departments me Devanagari me likhe aam shabd jode (रजिस्ट्रेशन, कार्डियोलॉजी, एक्सरे...).
+- info_desk aur department_guide ab tool ko patient ke shabd + ek chhota English shabd dete hain.
+- 8 naye tests (Devanagari aur Roman sawaal). Tests 70 se 78.
+
+## 0.6.0
+- Browser app `web_app.py` (FastAPI, ADK ke saath pehle se install): logo, bhasha chunne ki screen, emergency patti,
+  sujhaav wale buttons, desk ka naam har jawab par, mobile aur dark mode.
+- Emergency browser me bhi model se pehle pakdi jaati hai. Doosre user ka session nahin khulta.
+- `tests/test_web_app.py` (4 tests). Tests 66 se 70.
+
+## 0.5.0
+- Shuru me bhasha ka menu: 1. हिंदी (देवनागरी), 2. English. Chuni bhasha session state `user:language` me.
+- Saare agents chuni hui bhasha me hi jawab dete hain; Hindi chuni ho to sirf Devanagari.
+- Emergency aur self-harm ke tay sandesh bhi chuni hui bhasha me (model ke bina).
+- `adk web` me bhasha na chuni ho to reception pehle bhasha poochhta hai.
+- FAQ me radiology / X-ray ka jawab; info_desk ab X-ray, scan aur tests ke sawaal leta hai.
+- `app = App(...)` jo `adk web` aur `run_demo.py` dono chalate hain. Tests 60 se 66.
+
 ## 0.4.0 (technical review ke baad)
 - Booking/cancel ab do kadam me: `request_booking` / `request_cancellation` sirf arzi banate hain, `confirm_action`
   patient ke naye sandesh me 'haan' dekh kar hi likhta hai. Purane `book_appointment(confirmed=True)` aur

@@ -1,0 +1,98 @@
+# Super Speciality Hospital, Rewa: UNOFFICIAL DEMO PROFILE.
+# Departments ki list hospital ki public website se li gayi hai:
+#   https://ssmcrewa.ac.in/Super_Specialty_Hospital_Rewa/index.aspx  (15 Nov 2026 ko dekha)
+# OPD ke din aur samay SSMC ke OPD Services page se hain (08 AM - 04 PM, Mon-Sat), department-wise nahin.
+# Nephrology, Neonatology aur Pulmonary Medicine ek news report (indiamedtoday.com, 8 Oct 2020) se hain;
+# website par nahin hain, isliye abhi chal rahe hain ya nahin, iski pushti baaki hai.
+# Floor, slot ka samay aur keywords ANUMAAN hain. Asli istemaal se pehle hospital se pushti zaroori hai.
+
+departments:
+  - id: cardiology
+    name: Cardiology
+    name_hi: हृदय रोग विभाग
+    building: Super Speciality Hospital, SSMC campus (pushti baaki)
+    floor: "pushti baaki"
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-16:00"
+    slot_minutes: 30
+    keywords: [heart, chest pain, palpitation, blood pressure, bp, dil, dhadkan, दिल, धड़कन, हृदय, कार्डियोलॉजी, ब्लड प्रेशर]
+    active: true
+
+  - id: ctvs
+    name: C.T.V.S. (Cardiac Surgery)
+    name_hi: हृदय एवं वक्ष शल्य चिकित्सा
+    building: Super Speciality Hospital, SSMC campus (pushti baaki)
+    floor: "pushti baaki"
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-16:00"
+    slot_minutes: 30
+    keywords: [heart surgery, bypass, valve, cardiac surgery, ctvs, dil ka operation, बाईपास, हृदय सर्जरी, दिल का ऑपरेशन]
+    active: true
+
+  - id: neurology
+    name: Neurology
+    name_hi: तंत्रिका रोग विभाग
+    building: Super Speciality Hospital, SSMC campus (pushti baaki)
+    floor: "pushti baaki"
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-16:00"
+    slot_minutes: 30
+    keywords: [headache, migraine, seizure, epilepsy, paralysis, numbness, chakkar, mirgi, lakwa, सिरदर्द, चक्कर, मिर्गी, लकवा, न्यूरोलॉजी]
+    active: true
+
+  - id: neurosurgery
+    name: Neurosurgery
+    name_hi: न्यूरो सर्जरी
+    building: Super Speciality Hospital, SSMC campus (pushti baaki)
+    floor: "pushti baaki"
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-16:00"
+    slot_minutes: 30
+    keywords: [brain tumour, spine, slip disc, head injury, brain surgery, sir ki chot, ब्रेन, रीढ़, स्पाइन, सिर की चोट, न्यूरो सर्जरी]
+    active: true
+
+  - id: urology
+    name: Urology
+    name_hi: मूत्र रोग विभाग
+    building: Super Speciality Hospital, SSMC campus (pushti baaki)
+    floor: "pushti baaki"
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-16:00"
+    slot_minutes: 30
+    keywords: [kidney stone, stone, urine, prostate, pathri, peshab, पथरी, पेशाब, प्रोस्टेट, यूरोलॉजी, गुर्दे की पथरी]
+    active: true
+
+  # --- news report (8 Oct 2020) se; pushti baaki ---
+  - id: nephrology
+    name: Nephrology
+    name_hi: गुर्दा रोग विभाग
+    building: Super Speciality Hospital, SSMC campus (pushti baaki)
+    floor: "pushti baaki"
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-16:00"
+    slot_minutes: 30
+    keywords: [kidney, dialysis, creatinine, swelling, gurda, sujan, किडनी, गुर्दा, डायलिसिस, क्रिएटिनिन, सूजन, नेफ्रोलॉजी]
+    active: true
+
+  - id: neonatology
+    name: Neonatology
+    name_hi: नवजात शिशु विभाग
+    building: Super Speciality Hospital, SSMC campus (pushti baaki)
+    floor: "pushti baaki"
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-16:00"
+    slot_minutes: 30
+    keywords: [newborn, premature, baby, jaundice, navjaat, नवजात, शिशु, प्रीमैच्योर, पीलिया]
+    active: true
+
+  - id: pulmonary_medicine
+    name: Pulmonary Medicine
+    name_hi: श्वसन रोग विभाग
+    building: Super Speciality Hospital, SSMC campus (pushti baaki)
+    floor: "pushti baaki"
+    opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
+    opd_hours: "08:00-16:00"
+    slot_minutes: 30
+    keywords: [asthma, copd, tb, tuberculosis, lungs, chronic cough, dama, fefde, दमा, टीबी, फेफड़े, पुरानी खांसी]
+    active: true
+

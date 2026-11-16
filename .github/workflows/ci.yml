@@ -15,3 +15,5 @@ jobs:
         run: python scripts/manage_departments.py validate
       - name: Unit tests (API key nahin chahiye)
         run: pytest -q
+      - name: Booking flows against the HIS sandbox (synthetic)
+        run: python scripts/demo_flows.py

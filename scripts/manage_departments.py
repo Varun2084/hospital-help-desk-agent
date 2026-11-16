@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from hospital_agent import db
 from hospital_agent.config import get_department, load_departments
-from hospital_agent.tools.appointments import today
+from hospital_agent.tools.common import today
 
 
 def cmd_list() -> None:

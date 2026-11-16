@@ -8,7 +8,7 @@ import pytest
 from google.genai import types
 
 from hospital_agent import db
-from hospital_agent.tools import appointments
+from hospital_agent.tools import common
 
 IST = ZoneInfo("Asia/Kolkata")
 FIXED_NOW = datetime(2026, 11, 16, 7, 0, tzinfo=IST)  # Monday, subah 7 baje (OPD se pehle)
@@ -17,7 +17,7 @@ FIXED_NOW = datetime(2026, 11, 16, 7, 0, tzinfo=IST)  # Monday, subah 7 baje (OP
 @pytest.fixture(autouse=True)
 def isolated_db_and_clock(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "test.db"))
-    monkeypatch.setattr(appointments, "now", lambda: FIXED_NOW)
+    monkeypatch.setattr(common, "now", lambda: FIXED_NOW)
 
 
 def make_ctx(text: str = "", turn: str = "turn-1", user: str = "patient_001", session: str = "s1"):

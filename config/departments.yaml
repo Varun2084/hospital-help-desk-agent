@@ -13,7 +13,7 @@ departments:
     opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
     opd_hours: "08:00-13:00"
     slot_minutes: 30
-    keywords: [fever, cough, cold, weakness, bukhar, khansi, kamzori, बुखार, खांसी]
+    keywords: [fever, cough, cold, weakness, bukhar, khansi, kamzori, बुखार, खांसी, जनरल मेडिसिन, कमज़ोरी]
     active: true
 
   - id: cardiology
@@ -24,7 +24,7 @@ departments:
     opd_days: [Mon, Wed, Fri]
     opd_hours: "09:00-12:00"
     slot_minutes: 30
-    keywords: [heart, palpitation, blood pressure, bp, dil, dhadkan, दिल, धड़कन]
+    keywords: [heart, palpitation, blood pressure, bp, dil, dhadkan, दिल, धड़कन, कार्डियोलॉजी, हृदय, ब्लड प्रेशर]
     active: true
 
   - id: neurology
@@ -35,7 +35,7 @@ departments:
     opd_days: [Tue, Thu, Sat]
     opd_hours: "09:00-12:00"
     slot_minutes: 30
-    keywords: [headache, migraine, seizure, numbness, sir dard, chakkar, सिरदर्द, चक्कर]
+    keywords: [headache, migraine, seizure, numbness, sir dard, chakkar, सिरदर्द, चक्कर, न्यूरोलॉजी, दौरा, मिर्गी]
     active: true
 
   - id: orthopaedics
@@ -46,7 +46,7 @@ departments:
     opd_days: [Mon, Tue, Wed, Thu, Fri]
     opd_hours: "08:30-12:30"
     slot_minutes: 20
-    keywords: [bone, fracture, joint pain, back pain, knee, haddi, ghutna, kamar dard, हड्डी, घुटना]
+    keywords: [bone, fracture, joint pain, back pain, knee, haddi, ghutna, kamar dard, हड्डी, घुटना, ऑर्थोपेडिक्स, फ्रैक्चर, कमर दर्द, जोड़ों]
     active: true
 
   - id: ophthalmology
@@ -57,7 +57,7 @@ departments:
     opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
     opd_hours: "08:00-12:00"
     slot_minutes: 20
-    keywords: [eye, vision, blurred, aankh, nazar, आंख, नज़र]
+    keywords: [eye, vision, blurred, aankh, nazar, आंख, आँख, नज़र, नेत्र]
     active: true
 
   - id: ent
@@ -68,7 +68,7 @@ departments:
     opd_days: [Tue, Thu, Sat]
     opd_hours: "09:00-12:00"
     slot_minutes: 20
-    keywords: [ear, nose, throat, hearing, kaan, gala, naak, कान, गला]
+    keywords: [ear, nose, throat, hearing, kaan, gala, naak, कान, गला, नाक, ईएनटी]
     active: true
 
   - id: dermatology
@@ -79,7 +79,7 @@ departments:
     opd_days: [Mon, Wed, Fri]
     opd_hours: "09:00-12:00"
     slot_minutes: 15
-    keywords: [skin, rash, itching, acne, khujli, chamdi, त्वचा, खुजली]
+    keywords: [skin, rash, itching, acne, khujli, chamdi, त्वचा, खुजली, चमड़ी, दाने]
     active: true
 
   - id: paediatrics
@@ -90,7 +90,7 @@ departments:
     opd_days: [Mon, Tue, Wed, Thu, Fri, Sat]
     opd_hours: "08:00-12:00"
     slot_minutes: 20
-    keywords: [child, baby, infant, bachcha, बच्चा, शिशु]
+    keywords: [child, baby, infant, bachcha, बच्चा, शिशु, बच्चे, बाल रोग]
     active: true
 
   - id: psychiatry
@@ -101,7 +101,7 @@ departments:
     opd_days: [Tue, Fri]
     opd_hours: "09:00-12:00"
     slot_minutes: 30
-    keywords: [anxiety, depression, sleep, stress, tanav, neend, तनाव, नींद]
+    keywords: [anxiety, depression, sleep, stress, tanav, neend, तनाव, नींद, डिप्रेशन, चिंता, मनोरोग]
     active: true
 
   - id: dental
@@ -112,5 +112,5 @@ departments:
     opd_days: [Mon, Wed, Fri]
     opd_hours: "09:00-12:00"
     slot_minutes: 20
-    keywords: [tooth, teeth, gums, daant, दांत]
+    keywords: [tooth, teeth, gums, daant, दांत, दाँत]
     active: false   # Example: is department ki OPD abhi band hai (renovation)

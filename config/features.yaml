@@ -4,3 +4,4 @@ features:
   appointments: true       # slot dekhna, booking, cancel
   hospital_faq: true       # registration, documents, visiting hours jaise sawaal
   lab_reports: false       # NAYA: lab report ready hai ya nahin (testing poori hone tak band)
+  registration: true       # naye patient ka registration (DEMO patient ID)

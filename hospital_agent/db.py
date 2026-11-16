@@ -20,21 +20,35 @@ CREATE TABLE IF NOT EXISTS appointments (
     date          TEXT NOT NULL,   -- hamesha YYYY-MM-DD (canonical key)
     time          TEXT NOT NULL,   -- hamesha HH:MM
     status        TEXT NOT NULL DEFAULT 'booked',
-    created_at    TEXT NOT NULL
+    created_at    TEXT NOT NULL,
+    idempotency_key TEXT          -- jis arzi (action_id) se bani; retry par wahi booking milti hai
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_slot
     ON appointments (department_id, date, time) WHERE status = 'booked';
 
--- Booking ya cancel ki "arzi" jo patient ke 'haan' ka intezaar kar rahi hai.
+-- Naye patient ka registration (demo). Sirf zaroori jaankari; Aadhaar ya bimari ka itihaas nahin.
+CREATE TABLE IF NOT EXISTS patients (
+    id            TEXT PRIMARY KEY,   -- DEMO-XXXXXXXX (asli UHID hospital ka system deta hai)
+    full_name     TEXT NOT NULL,
+    age           INTEGER NOT NULL,
+    gender        TEXT NOT NULL,
+    phone         TEXT NOT NULL,
+    city          TEXT NOT NULL,
+    guardian_name TEXT,               -- 18 se kam umar ho to zaroori
+    created_at    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_patient_per_phone_and_name ON patients (phone, full_name);
+
+-- Booking, cancel ya registration ki "arzi" jo patient ke Confirm button ka intezaar kar rahi hai.
 CREATE TABLE IF NOT EXISTS pending_actions (
     id                 TEXT PRIMARY KEY,
-    kind               TEXT NOT NULL,              -- 'book' ya 'cancel'
+    kind               TEXT NOT NULL,              -- 'book', 'cancel' ya 'register'
     payload            TEXT NOT NULL,              -- JSON: kya karna hai
     user_id            TEXT NOT NULL,              -- kisne maanga
     session_id         TEXT NOT NULL,              -- kis baat-cheet me
     created_invocation TEXT NOT NULL,              -- kis turn me bani
     expires_at         TEXT NOT NULL,
-    status             TEXT NOT NULL DEFAULT 'pending',   -- pending / done / failed
+    status             TEXT NOT NULL DEFAULT 'pending',   -- pending / committing / done / failed / discarded
     outcome            TEXT                        -- JSON: nateeja, taaki retry par wahi laute
 );
 """
@@ -44,20 +58,26 @@ class ActionAlreadyUsed(Exception):
     """Pending action pehle hi istemaal ho chuka hai."""
 
 
-class NothingToCancel(Exception):
-    """ID + phone se koi 'booked' appointment nahin mili."""
-
-
 @contextmanager
 def connect(db_path: str | None = None):
     """Connection kholta hai aur kaam ke baad HAMESHA band karta hai."""
     conn = sqlite3.connect(db_path or DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     try:
         yield conn
     finally:
         conn.close()
+
+
+def _migrate(conn) -> None:
+    """Purane hospital.db me naya column jodta hai (data nahin mitta)."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(appointments)")}
+    if "idempotency_key" not in columns:
+        conn.execute("ALTER TABLE appointments ADD COLUMN idempotency_key TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_key ON appointments (idempotency_key)")
+    conn.commit()
 
 
 def now_text() -> str:
@@ -121,30 +141,85 @@ def _consume(conn, action_id: str, outcome: dict) -> None:
 def fail_pending(conn, action_id: str, outcome: dict) -> None:
     with conn:
         conn.execute(
-            "UPDATE pending_actions SET status = 'failed', outcome = ? WHERE id = ? AND status = 'pending'",
+            "UPDATE pending_actions SET status = 'failed', outcome = ? "
+            "WHERE id = ? AND status IN ('pending', 'committing')",
             (json.dumps(outcome, ensure_ascii=False), action_id),
         )
 
 
-def commit_booking(conn, action_id: str, appointment_id: str, p: dict, outcome: dict) -> None:
-    """EK transaction me: action consume + appointment insert. Koi ek fail ho to dono wapas (rollback)."""
+def discard_pending(conn, action_id: str, outcome: dict) -> bool:
+    """Sirf 'pending' arzi hatayi ja sakti hai; HIS ko bheji ja chuki arzi nahin."""
+    with conn:
+        cur = conn.execute(
+            "UPDATE pending_actions SET status = 'discarded', outcome = ? WHERE id = ? AND status = 'pending'",
+            (json.dumps(outcome, ensure_ascii=False), action_id),
+        )
+    return cur.rowcount == 1
+
+
+def mark_committing(conn, action_id: str) -> bool:
+    """Arzi ko 'committing' karta hai: HIS ko bheji ja rahi hai. Pehle se committing ho to bhi True (retry)."""
+    with conn:
+        cur = conn.execute(
+            "UPDATE pending_actions SET status = 'committing' WHERE id = ? AND status IN ('pending', 'committing')",
+            (action_id,),
+        )
+    return cur.rowcount == 1
+
+
+def finish_pending(conn, action_id: str, outcome: dict) -> None:
+    """HIS ne kaam pakka kar diya: arzi 'done', nateeja saath me."""
+    with conn:
+        conn.execute(
+            "UPDATE pending_actions SET status = 'done', outcome = ? "
+            "WHERE id = ? AND status IN ('pending', 'committing')",
+            (json.dumps(outcome, ensure_ascii=False), action_id),
+        )
+
+
+# ---------- appointments (LocalHIS inhe istemaal karta hai) ----------
+
+def find_appointment_by_key(conn, key: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM appointments WHERE idempotency_key = ?", (key,)).fetchone()
+
+
+def insert_appointment(conn, appointment_id: str, key: str, p: dict) -> None:
+    with conn:
+        conn.execute(
+            "INSERT INTO appointments (id, patient_name, phone, department_id, date, time, created_at, "
+            "idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (appointment_id, p["patient_name"], p["phone"], p["department_id"], p["date"], p["time"],
+             now_text(), key),
+        )
+
+
+def cancel_appointment(conn, appointment_id: str, phone: str) -> bool:
+    """Maalik (phone) dekh kar cancel. Pehle se cancelled ho to bhi True (retry safe)."""
+    with conn:
+        cur = conn.execute(
+            "UPDATE appointments SET status = 'cancelled' WHERE id = ? AND phone = ?",
+            (appointment_id, phone),
+        )
+    return cur.rowcount == 1
+
+
+# ---------- patients ----------
+
+def new_patient_id() -> str:
+    return "DEMO-" + uuid.uuid4().hex[:8].upper()
+
+
+def find_patient(conn, phone: str, full_name: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM patients WHERE phone = ? AND full_name = ?", (phone, full_name)).fetchone()
+
+
+def commit_registration(conn, action_id: str, patient_id: str, p: dict, outcome: dict) -> None:
+    """EK transaction me: action consume + patient insert."""
     with conn:
         _consume(conn, action_id, outcome)
         conn.execute(
-            "INSERT INTO appointments (id, patient_name, phone, department_id, date, time, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (appointment_id, p["patient_name"], p["phone"], p["department_id"], p["date"], p["time"],
+            "INSERT INTO patients (id, full_name, age, gender, phone, city, guardian_name, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (patient_id, p["full_name"], p["age"], p["gender"], p["phone"], p["city"], p.get("guardian_name"),
              now_text()),
         )
-
-
-def commit_cancellation(conn, action_id: str, appointment_id: str, phone: str, outcome: dict) -> None:
-    """EK transaction me: maalik (phone) aur status dekh kar cancel + action consume."""
-    with conn:
-        cur = conn.execute(
-            "UPDATE appointments SET status = 'cancelled' WHERE id = ? AND phone = ? AND status = 'booked'",
-            (appointment_id, phone),
-        )
-        if cur.rowcount != 1:
-            raise NothingToCancel(appointment_id)
-        _consume(conn, action_id, outcome)

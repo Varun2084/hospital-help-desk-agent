@@ -10,7 +10,9 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-CONFIG_DIR = Path(os.environ.get("HOSPITAL_CONFIG_DIR", Path(__file__).parent.parent / "config"))
+PROJECT_DIR = Path(__file__).parent.parent
+# Kaun sa hospital profile chalega: 'config' (demo) ya 'config_rewa'. .env me HOSPITAL_CONFIG_DIR se badlein.
+CONFIG_DIR = PROJECT_DIR / os.environ.get("HOSPITAL_CONFIG_DIR", "config")
 VALID_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 

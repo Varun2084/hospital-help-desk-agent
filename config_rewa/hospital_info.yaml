@@ -1,0 +1,63 @@
+# Super Speciality Hospital, Rewa: UNOFFICIAL DEMO PROFILE.
+# "source" me likha hai jaankari kahan se aayi. "pushti baaki" wale jawab anumaan hain;
+# asli istemaal se pehle hospital se likhit pushti zaroori hai.
+
+hospital_name: Super Speciality Hospital, Rewa (unofficial demo)
+disclaimer: >-
+  Yeh Super Speciality Hospital, Rewa ka official app nahin hai. Yeh ek demo hai; jaankari public
+  website se li gayi hai ya anumaan hai. Pakki jaankari ke liye hospital ke helpdesk se puchhein.
+
+helpdesk: >-
+  Shyam Shah Medical College, near Sanjay Gandhi Hospital, Rewa (M.P.) 486001. Phone 07662-241655
+  (college office ka number, website par diya hua; OPD helpline ki pushti baaki).
+
+topics:
+  - id: opd_timing
+    keywords: [opd, timing, time, samay, kab, khulta, sunday, ravivar, समय, टाइमिंग, कब, रविवार]
+    answer: >-
+      SSMC ki website ke anusaar OPD Monday se Saturday, subah 8 baje se shaam 4 baje tak hai.
+      Ravivar ko OPD band rehti hai. Department-wise samay ki pushti hospital se karein.
+    source: https://ssmcrewa.ac.in/OPD_Services.aspx
+    verified_on: 2026-11-15
+
+  - id: departments
+    keywords: [department, vibhag, speciality, specialist, kaun se, विभाग, स्पेशलिस्ट, डिपार्टमेंट]
+    answer: >-
+      Website par Super Speciality Hospital ke vibhag: Cardiology, C.T.V.S. (Cardiac Surgery),
+      Neurology, Neurosurgery, Urology aur Anaesthesia. Ek 2020 ki news report ke anusaar
+      Nephrology, Neonatology aur Pulmonary Medicine bhi hain (abhi chal rahe hain, iski pushti baaki).
+    source: https://ssmcrewa.ac.in/Super_Specialty_Hospital_Rewa/index.aspx ; indiamedtoday.com (8 Oct 2020)
+    verified_on: 2026-11-15
+
+  - id: registration
+    keywords: [registration, register, card, uhid, abha, panjikaran, पंजीकरण, रजिस्ट्रेशन, रजिस्टर, कार्ड, पर्ची]
+    answer: >-
+      Naye patient ka registration OPD ke registration counter par hota hai, jahan patient ID aur
+      OPD parchi milti hai. Is demo me aap yahin chat se bhi demo registration kar sakte hain.
+      (Counter ki jagah aur fees ki pushti baaki.)
+    source: anumaan (pushti baaki)
+    verified_on: 2026-11-15
+
+  - id: documents
+    keywords: [document, documents, id proof, aadhaar, kagaz, report, दस्तावेज़, डॉक्यूमेंट, आधार, कागज़, रिपोर्ट]
+    answer: >-
+      Photo ID, purani reports, purani OPD parchi aur dawaiyon ki list saath laayein. Referral
+      letter ho to woh bhi. (Hospital ki apni list ki pushti baaki.)
+    source: anumaan (pushti baaki)
+    verified_on: 2026-11-15
+
+  - id: general_opd
+    keywords: [fever, bukhar, cough, cold, general, medicine, bachcha, pregnancy, बुखार, खांसी, सामान्य, बच्चा, गर्भ]
+    answer: >-
+      Yeh super speciality hospital hai. Bukhar, khansi, bachchon, prasav ya aam bimariyon ke liye
+      SSMC ke saath jude Sanjay Gandhi Memorial Hospital ki OPD me dikhayein. (Pushti baaki.)
+    source: https://ssmcrewa.ac.in/OPD_Services.aspx
+    verified_on: 2026-11-15
+
+  - id: emergency
+    keywords: [emergency, casualty, ambulance, accident, aapatkal, आपातकाल, इमरजेंसी, एम्बुलेंस]
+    answer: >-
+      Jaan ka khatra ho to turant 112 par call karein. Ambulance ke liye 108. Emergency ke liye
+      appointment nahin chahiye.
+    source: national helpline numbers
+    verified_on: 2026-11-15

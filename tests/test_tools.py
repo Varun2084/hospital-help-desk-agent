@@ -1,3 +1,5 @@
+import pytest
+
 from hospital_agent.tools.appointments import check_available_slots
 from hospital_agent.tools.departments import (
     get_department_info,
@@ -65,3 +67,25 @@ def test_faq_answers_with_source_and_date():
 def test_unknown_question_points_to_helpdesk():
     result = get_hospital_info("canteen ka menu kya hai?")
     assert result["status"] == "not_found" and result["helpdesk"]
+
+
+
+@pytest.mark.parametrize("question, topic", [
+    ("रजिस्ट्रेशन कैसे करें?", "registration"),       # bug: Devanagari me likhe angrezi shabd nahin milte the
+    ("कौन से डॉक्यूमेंट लाने हैं?", "documents"),
+    ("एक्सरे कैसे कराएँ?", "radiology"),
+    ("फार्मेसी कहाँ है?", "pharmacy"),
+    ("registration kaise karein?", "registration"),
+])
+def test_faq_understands_devanagari_and_roman(question, topic):
+    assert get_hospital_info(question)["topic"] == topic
+
+
+@pytest.mark.parametrize("text, dept", [
+    ("मुझे कार्डियोलॉजी में दिखाना है", "cardiology"),
+    ("घुटने में फ्रैक्चर", "orthopaedics"),
+    ("बच्चे को बुखार", "paediatrics"),
+])
+def test_departments_understand_devanagari(text, dept):
+    ids = [s["id"] for s in suggest_department(text)["suggestions"]]
+    assert dept in ids
