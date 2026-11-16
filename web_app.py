@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()  # .env ko agent import hone se PEHLE padhna zaroori hai
 
 from fastapi import FastAPI, HTTPException, Request, Response  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
+from fastapi.responses import FileResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from google.adk.events import Event, EventActions  # noqa: E402
 from google.adk.runners import Runner  # noqa: E402
@@ -23,7 +23,7 @@ from google.genai import types  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 
-from hospital_agent import auth, db, his  # noqa: E402
+from hospital_agent import auth, db, his, records  # noqa: E402
 from hospital_agent.agent import app as adk_app  # noqa: E402
 from hospital_agent.cards import cards_from_event, record_outcome  # noqa: E402
 from hospital_agent.config import load_hospital_info  # noqa: E402
@@ -56,10 +56,10 @@ def _kind(action_id: str) -> str:
 
 DESK_NAMES = {  # jawab dene wale desk ka naam, patient ki bhasha me
     "Hindi": {"reception": "रिसेप्शन", "department_guide": "विभाग मार्गदर्शन", "appointment_desk": "अपॉइंटमेंट डेस्क",
-              "info_desk": "जानकारी डेस्क", "lab_desk": "लैब डेस्क", "safety": "आपातकालीन सूचना",
+              "info_desk": "जानकारी डेस्क", "records_desk": "रिकॉर्ड डेस्क", "safety": "आपातकालीन सूचना",
               "registration_desk": "रजिस्ट्रेशन डेस्क"},
     "English": {"reception": "Reception", "department_guide": "Department guide",
-                "appointment_desk": "Appointment desk", "info_desk": "Information desk", "lab_desk": "Lab desk",
+                "appointment_desk": "Appointment desk", "info_desk": "Information desk", "records_desk": "Records desk",
                 "safety": "Emergency notice", "registration_desk": "Registration desk"},
 }
 
@@ -158,6 +158,37 @@ def create_app(runner: Runner | None = None, session_service=None) -> FastAPI:
         if booking is None:   # anjaan ya doosre patient ka: ek jaisa jawab, kuch disclose nahin
             raise HTTPException(status_code=404, detail="Appointment not found")
         return appointment_view(booking)
+
+    # ---------- Health records (Lesson 5): list + protected documents ----------
+    def _document(request: Request, pdf_for, record_id: str, filename: str):
+        """Document hamesha isi protected raaste se: har baar login, maalik aur release/issue ki jaanch."""
+        patient = current_patient(request)
+        if patient is None:
+            if "text/html" in request.headers.get("accept", ""):   # browser me khola gaya saved link
+                return RedirectResponse("/?login=1", status_code=303)
+            raise HTTPException(status_code=401, detail="Login required")
+        pdf = pdf_for(patient["id"], record_id)
+        if pdf is None:   # anjaan, doosre patient ka, ya abhi release nahin: ek hi jawab
+            raise HTTPException(status_code=404, detail="Document not found")
+        return Response(pdf, media_type="application/pdf", headers={
+            "Content-Disposition": f'inline; filename="{filename}"', "Cache-Control": "no-store, private",
+            "X-Content-Type-Options": "nosniff"})
+
+    @web.get("/api/me/lab-tests")
+    async def my_lab_tests(request: Request):
+        return {"lab_tests": records.lab_tests_for(require_patient(request)["id"])}
+
+    @web.get("/api/me/lab-tests/{test_id}/report")
+    async def my_lab_report(test_id: str, request: Request):
+        return _document(request, records.lab_report_pdf, test_id, "lab-report.pdf")
+
+    @web.get("/api/me/prescriptions")
+    async def my_prescriptions(request: Request):
+        return {"prescriptions": records.prescriptions_for(require_patient(request)["id"])}
+
+    @web.get("/api/me/prescriptions/{prescription_id}/document")
+    async def my_prescription(prescription_id: str, request: Request):
+        return _document(request, records.prescription_pdf, prescription_id, "prescription.pdf")
 
     @web.post("/api/start")
     async def start(req: StartRequest):

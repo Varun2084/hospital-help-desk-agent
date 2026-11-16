@@ -1,4 +1,4 @@
-"""Lesson 4 demo: login (authentication) aur "My Appointments" (authorization), Fake HIS ke saath.
+"""Lesson 4 aur 5 demo: login, "My Appointments" aur health records ki access jaanch, Fake HIS ke saath.
 
     python scripts/demo_access.py
 
@@ -57,7 +57,7 @@ def main() -> None:
 
         login(client, A)
         listed = [a["appointment_id"] for a in client.get("/api/me/appointments").json()["appointments"]]
-        results.append(row("Patient A apni list dekhe", listed, listed == [refs[A]]))
+        results.append(row("Patient A apni list dekhe", listed, refs[A] in listed and refs[B] not in listed))
 
         r = client.get(f"/api/me/appointments/{refs[A]}")
         results.append(row("Patient A apna reference khole", (r.status_code, r.json().get("time")),
@@ -70,11 +70,27 @@ def main() -> None:
 
         ctx = SimpleNamespace(state={"temp:patient_ref": A})   # chat tool: wahi login, chat ka text nahin
         seen = [a["appointment_id"] for a in my_appointments(ctx)["appointments"]]
-        results.append(row(f"Chat: A likhe 'B ({refs[B]}) ki dikhao'", seen, seen == [refs[A]]))
+        results.append(row(f"Chat: A likhe 'B ({refs[B]}) ki dikhao'", seen, refs[A] in seen and refs[B] not in seen))
 
+        lab = {t["test_id"]: t for t in client.get("/api/me/lab-tests").json()["lab_tests"]}
+        results.append(row("Lesson 5: A ka processing test", (lab["LAB-A-002"]["status"],
+                           client.get("/api/me/lab-tests/LAB-A-002/report").status_code),
+                           not lab["LAB-A-002"]["report_available"]))
+        report = client.get("/api/me/lab-tests/LAB-A-001/report")
+        rx = client.get("/api/me/prescriptions/RX-A-001/document")
+        results.append(row("Lesson 5: A ka report + prescription", (report.status_code, rx.status_code),
+                           report.content.startswith(b"%PDF") and rx.content.startswith(b"%PDF")))
+        client.post("/api/logout")
+        login(client, B)
+        r = client.get("/api/me/prescriptions/RX-A-001/document")
+        results.append(row("Lesson 5: B, A ka document link khole", (r.status_code, r.json()), r.status_code == 404))
         client.post("/api/logout")
         r = client.get("/api/me/appointments")
         results.append(row("Logout ke baad protected endpoint", r.status_code, r.status_code == 401))
+        r = client.get("/api/me/prescriptions/RX-A-001/document", headers={"accept": "text/html"},
+                       follow_redirects=False)
+        results.append(row("Lesson 5: logout ke baad saved link", (r.status_code, r.headers.get("location")),
+                           r.status_code == 303))
         print(f"\n{sum(results)}/{len(results)} checks passed")
         if not all(results):
             sys.exit(1)

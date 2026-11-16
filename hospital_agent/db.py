@@ -58,6 +58,30 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     revoked     INTEGER NOT NULL DEFAULT 0
 );
 
+-- Health records (demo). Asli hospital me lab tests Lab Information System se aur prescriptions medical-record
+-- system se aate hain. Document hospital ka original PDF hai; model use na likhta hai na badalta hai.
+CREATE TABLE IF NOT EXISTS lab_tests (
+    id              TEXT PRIMARY KEY,      -- LAB-...
+    patient_ref     TEXT NOT NULL,
+    visit_ref       TEXT,
+    test_name       TEXT NOT NULL,
+    department_id   TEXT,
+    ordered_on      TEXT NOT NULL,         -- YYYY-MM-DD
+    status          TEXT NOT NULL,         -- ordered / sample_collected / processing / report_available
+    report_released INTEGER NOT NULL DEFAULT 0,   -- source system ne patient ke liye release kiya?
+    report_pdf      BLOB
+);
+CREATE TABLE IF NOT EXISTS prescriptions (
+    id              TEXT PRIMARY KEY,      -- RX-...
+    patient_ref     TEXT NOT NULL,
+    visit_ref       TEXT NOT NULL,
+    visit_date      TEXT NOT NULL,
+    department_id   TEXT NOT NULL,
+    doctor          TEXT NOT NULL,
+    issued          INTEGER NOT NULL DEFAULT 1,   -- hospital ne issue kiya?
+    document_pdf    BLOB
+);
+
 -- Booking, cancel ya registration ki "arzi" jo patient ke Confirm button ka intezaar kar rahi hai.
 CREATE TABLE IF NOT EXISTS pending_actions (
     id                 TEXT PRIMARY KEY,
@@ -300,3 +324,41 @@ def find_appointment_for_patient(conn, patient_ref: str, appointment_id: str) ->
     """Reference aur maalik dono ek hi query me: doosre patient ka reference ho to kuch nahin milta."""
     return conn.execute("SELECT * FROM appointments WHERE id = ? AND patient_ref = ?",
                         (appointment_id, patient_ref)).fetchone()
+
+
+# ---------- health records (records.py inhe istemaal karta hai; har query patient tak simit) ----------
+
+def list_lab_tests(conn, patient_ref: str) -> list[sqlite3.Row]:
+    return conn.execute("SELECT id, visit_ref, test_name, department_id, ordered_on, status, report_released "
+                        "FROM lab_tests WHERE patient_ref = ? ORDER BY ordered_on DESC, id", (patient_ref,)).fetchall()
+
+
+def get_lab_report(conn, patient_ref: str, test_id: str) -> sqlite3.Row | None:
+    """Sirf apna, aur sirf released report. Doosre ka ya release nahin hua to None."""
+    return conn.execute("SELECT * FROM lab_tests WHERE id = ? AND patient_ref = ? AND report_released = 1 "
+                        "AND status = 'report_available' AND report_pdf IS NOT NULL",
+                        (test_id, patient_ref)).fetchone()
+
+
+def list_prescriptions(conn, patient_ref: str) -> list[sqlite3.Row]:
+    return conn.execute("SELECT id, visit_ref, visit_date, department_id, doctor FROM prescriptions "
+                        "WHERE patient_ref = ? AND issued = 1 ORDER BY visit_date DESC, id", (patient_ref,)).fetchall()
+
+
+def get_prescription(conn, patient_ref: str, prescription_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM prescriptions WHERE id = ? AND patient_ref = ? AND issued = 1 "
+                        "AND document_pdf IS NOT NULL", (prescription_id, patient_ref)).fetchone()
+
+
+def save_lab_test(conn, row: dict) -> None:
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO lab_tests (id, patient_ref, visit_ref, test_name, department_id, "
+                     "ordered_on, status, report_released, report_pdf) VALUES (:id, :patient_ref, :visit_ref, "
+                     ":test_name, :department_id, :ordered_on, :status, :report_released, :report_pdf)", row)
+
+
+def save_prescription(conn, row: dict) -> None:
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO prescriptions (id, patient_ref, visit_ref, visit_date, department_id, "
+                     "doctor, issued, document_pdf) VALUES (:id, :patient_ref, :visit_ref, :visit_date, "
+                     ":department_id, :doctor, :issued, :document_pdf)", row)

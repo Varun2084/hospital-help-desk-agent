@@ -22,13 +22,13 @@ from hospital_agent.tools.departments import (
     suggest_department,
 )
 from hospital_agent.tools.faq import get_hospital_info
-from hospital_agent.tools.lab_reports import get_lab_report_status
+from hospital_agent.tools.records import open_my_records
 from hospital_agent.tools.registration import request_registration
 
 FEATURE_TOOLS = {
     "department_guide": [list_departments, get_department_info, suggest_department],
     "appointments": [today_date, check_available_slots, request_booking, my_appointments, request_cancellation],
     "hospital_faq": [get_hospital_info],
-    "lab_reports": [get_lab_report_status],
+    "health_records": [open_my_records],
     "registration": [request_registration],
 }

@@ -13,10 +13,10 @@ routes emergencies to 112 before any model is called.
 ```
 reception (coordinator, emergency guardrail)
  ├── department_guide   list_departments, get_department_info, suggest_department
- ├── appointment_desk   today_date, check_available_slots, request_booking, request_cancellation
+ ├── appointment_desk   today_date, check_available_slots, request_booking, my_appointments, request_cancellation
  ├── info_desk          get_hospital_info
  ├── registration_desk  request_registration
- └── lab_desk           get_lab_report_status        (feature flag, off by default)
+ └── records_desk       open_my_records   (only opens a dashboard tab; never reads records)
 ```
 
 - Departments, FAQ and features live in `config/*.yaml`, validated with Pydantic
@@ -51,7 +51,7 @@ reception (coordinator, emergency guardrail)
 python -m venv .venv && source .venv/bin/activate     # Windows: py -3.12 -m venv .venv
 pip install -r requirements.txt                       # Windows: .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 cp .env.example .env              # add your GOOGLE_API_KEY
-pytest -q                         # 123 tests, no API key needed
+pytest -q                         # 126 tests, no API key needed
 adk web                           # chat in the browser, pick hospital_agent
 python web_app.py                 # branded chat in the browser: http://127.0.0.1:8000
 python run_demo.py                # or chat in the terminal
@@ -63,7 +63,7 @@ python scripts/demo_flows.py      # three booking flows against the fake HIS, no
 ```bash
 python scripts/seed_demo_patients.py   # DEMO-PATIENT-A / 9000000011 and DEMO-PATIENT-B / 9000000012, one booking each
 python web_app.py                      # Log in -> Patient ID + phone -> demo code shown on screen (no SMS here)
-python scripts/demo_access.py          # the access test matrix against the fake HIS, no API key
+python scripts/demo_access.py          # Lessons 4 and 5 access checks against the fake HIS, no API key
 ```
 
 | Endpoint | Check | Result |
@@ -72,6 +72,28 @@ python scripts/demo_access.py          # the access test matrix against the fake
 | `GET /api/me/appointments` | patient from the session | only that patient's bookings, else 401 |
 | `GET /api/me/appointments/{booking_ref}` | booking owner = session patient | details, or a generic 404 |
 | `POST /api/logout` | session revoked on the server | later calls 401 |
+
+### Patient dashboard and health records (Lesson 5)
+
+After login, **My Dashboard** is a separate screen from the chat: the next appointment at the top, then
+three tabs. A patient never has to ask the chatbot for a prescription.
+
+| Tab | Shows | Action |
+| --- | --- | --- |
+| Appointments | upcoming and past visits: department, date, time, status | View |
+| Prescriptions | visit date, department, prescribing doctor | View prescription (the hospital's issued PDF) |
+| Lab Tests | test, order date, progress `Ordered -> Sample collected -> Processing -> Report available` | View report, only once the source system releases it |
+
+| Endpoint | Check |
+| --- | --- |
+| `GET /api/me/lab-tests`, `GET /api/me/prescriptions` | session patient only |
+| `GET /api/me/lab-tests/{test_id}/report` | owner + released, else generic 404 |
+| `GET /api/me/prescriptions/{prescription_id}/document` | owner + issued, else generic 404 |
+
+Documents are always served through these protected endpoints (`Cache-Control: no-store`), so a saved link
+gets the same checks; opened after logout in a browser it redirects to login. The model never reads,
+writes or rewrites report values, medicine names or doses: in chat, "where are my reports?" only shows a
+button that opens the Lab Tests tab. Demo documents are synthetic PDFs made by `seed_demo_patients.py`.
 
 ### Fake HIS on its own port (Lesson 3)
 
@@ -96,9 +118,11 @@ The default model is `gemini-3.5-flash-lite`; change it with `HOSPITAL_MODEL` in
 
 | Check | Result |
 | --- | --- |
-| All tests (`pytest -q`): config, tools, booking rules, Confirm button, login and access, safety, profiles, web API | 123 passed |
+| All tests (`pytest -q`): config, tools, booking rules, Confirm button, login and access, health records, safety, profiles, web API | 126 passed |
 | of which: end-to-end through the real ADK Runner with a scripted model | 7 passed |
 | of which: login and My Appointments (Lesson 4 test matrix) | 9 passed |
+| of which: dashboard health records (Lesson 5: the four interview cases) | 8 passed |
+| `scripts/demo_access.py` against the fake HIS (Lessons 4 and 5) | 10/10 checks |
 | of which: fake HIS over real HTTP (three endpoints, competing requests, timeout recovery, patient scoping, HIS down) | 8 passed |
 | `scripts/demo_flows.py` in a clean environment | 3 flows as expected |
 | Live Gemini conversation and eval set (`adk web`, `adk eval`) | Add your numbers here |

@@ -7,7 +7,7 @@
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="/static/style.css?v=0.10.0">
+<link rel="stylesheet" href="/static/style.css?v=0.11.0">
 </head>
 <body>
 <div class="app">
@@ -59,6 +59,21 @@
     </form>
   </main>
 
+  <!-- Mera Dashboard: chat se alag screen. Har record server se, login kiye patient tak simit. -->
+  <main id="dash" class="dash" hidden>
+    <div class="dash-head">
+      <h1 id="dashTitle"></h1>
+      <button type="button" class="ghost" id="backToChat"></button>
+    </div>
+    <section id="nextAppt" class="next-appt"></section>
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab" role="tab" data-tab="appointments"></button>
+      <button type="button" class="tab" role="tab" data-tab="prescriptions"></button>
+      <button type="button" class="tab" role="tab" data-tab="lab_tests"></button>
+    </nav>
+    <section id="tabPanel" class="tab-panel" role="tabpanel"></section>
+  </main>
+
   <!-- Login (demo): Patient ID + phone -> code. Asli app me code SMS se aata. -->
   <dialog id="loginDlg" class="dlg">
     <form method="dialog" id="loginForm">
@@ -77,15 +92,9 @@
     </form>
   </dialog>
 
-  <!-- My Appointments: sirf login kiye patient ki bookings (server tay karta hai) -->
-  <dialog id="apptsDlg" class="dlg">
-    <h2 id="apptsTitle"></h2>
-    <div id="apptsBody"></div>
-    <div class="dlg-actions"><button type="button" class="ghost" id="apptsClose"></button></div>
-  </dialog>
 
   <footer class="foot" data-t="foot">यह डॉक्टर नहीं है और बीमारी या दवा नहीं बताता। · This is not a doctor and does not diagnose.</footer>
 </div>
-<script src="/static/app.js?v=0.10.0"></script>
+<script src="/static/app.js?v=0.11.0"></script>
 </body>
 </html>

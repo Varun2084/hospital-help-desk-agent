@@ -16,6 +16,8 @@ FIXED_NOW = datetime(2026, 11, 16, 7, 0, tzinfo=IST)  # Monday, subah 7 baje (OP
 
 @pytest.fixture(autouse=True)
 def isolated_db_and_clock(tmp_path, monkeypatch):
+    # .env me sandbox ho tab bhi tests local HIS par (sandbox wale tests apne fixture me khud badalte hain)
+    monkeypatch.setenv("HIS_MODE", "local")
     monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setattr(common, "now", lambda: FIXED_NOW)
 

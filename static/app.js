@@ -10,7 +10,7 @@ const TEXT = {
     foot: "यह डॉक्टर नहीं है और बीमारी या दवा नहीं बताता।",
     chips: ["नया रजिस्ट्रेशन करना है", "कार्डियोलॉजी में अगले सोमवार का स्लॉट चाहिए", "OPD का समय क्या है?", "कौन-कौन से विभाग हैं?"],
     me: "आप", fail: "सर्वर से जुड़ नहीं पा रहा। इमरजेंसी में 112 पर कॉल करें।",
-    login: "लॉगिन", logout: "लॉगआउट", appts: "मेरी अपॉइंटमेंट", apptsChip: "मेरी अपॉइंटमेंट दिखाइए",
+    login: "लॉगिन", logout: "लॉगआउट", appts: "मेरा डैशबोर्ड", apptsChip: "मेरी अपॉइंटमेंट दिखाइए",
     loginTitle: "मरीज़ लॉगिन", pid: "मरीज़ ID", phone: "रजिस्टर्ड मोबाइल नंबर", code: "6 अंकों का कोड",
     sendCode: "कोड भेजें", verify: "लॉगिन करें", cancel: "रद्द करें", close: "बंद करें", back: "← सूची",
     demoCode: (c) => `डेमो: असली ऐप में यह कोड SMS से आता। आपका कोड: ${c}`,
@@ -20,6 +20,15 @@ const TEXT = {
     loginCard: "बुकिंग के लिए लॉगिन करें", loginCardNote: "यह स्लॉट याद रहेगा। लॉगिन के बाद कार्ड पर पक्का करें।",
     loginOnly: "आगे बढ़ने के लिए लॉगिन करें", loginOnlyNote: "आपकी अपॉइंटमेंट सिर्फ़ आपके लॉगिन से दिखती हैं।",
     statusWord: { confirmed: "पक्का", cancelled: "रद्द" },
+    dash: "मेरा डैशबोर्ड", backToChat: "← चैट", nextAppt: "अगली अपॉइंटमेंट", noNext: "कोई आने वाली अपॉइंटमेंट नहीं।",
+    tabs: { appointments: "अपॉइंटमेंट", prescriptions: "प्रिस्क्रिप्शन", lab_tests: "लैब टेस्ट" },
+    upcoming: "आने वाली", past: "पिछली विज़िट", view: "देखें", hide: "छिपाएँ",
+    viewRx: "प्रिस्क्रिप्शन देखें", viewReport: "रिपोर्ट देखें", doctor: "डॉक्टर", visit: "विज़िट",
+    orderedOn: "ऑर्डर", noReport: "रिपोर्ट अभी जारी नहीं हुई। तैयार होने पर यहीं दिखेगी।",
+    noRx: "अभी कोई प्रिस्क्रिप्शन नहीं।", noLab: "अभी कोई लैब टेस्ट नहीं।",
+    labSteps: ["ऑर्डर हुआ", "सैंपल लिया गया", "जाँच चल रही है", "रिपोर्ट उपलब्ध"],
+    openTab: { lab_tests: "लैब टेस्ट खोलें", prescriptions: "प्रिस्क्रिप्शन खोलें", appointments: "अपॉइंटमेंट खोलें" },
+    docNote: "दस्तावेज़ अस्पताल का मूल रिकॉर्ड है; इसे AI ने नहीं लिखा। समझने के लिए डॉक्टर से पूछें।",
   },
   English: {
     sub: "AI Help Desk",
@@ -30,7 +39,7 @@ const TEXT = {
     foot: "This is not a doctor and does not diagnose or suggest medicines.",
     chips: ["I want to register as a new patient", "I need a cardiology slot next Monday", "What are the OPD timings?", "Which departments are there?"],
     me: "You", fail: "Cannot reach the server. In an emergency, call 112.",
-    login: "Log in", logout: "Log out", appts: "My appointments", apptsChip: "Show my appointments",
+    login: "Log in", logout: "Log out", appts: "My Dashboard", apptsChip: "Show my appointments",
     loginTitle: "Patient login", pid: "Patient ID", phone: "Registered mobile number", code: "6-digit code",
     sendCode: "Send code", verify: "Log in", cancel: "Cancel", close: "Close", back: "← List",
     demoCode: (c) => `Demo: a real app would send this code by SMS. Your code: ${c}`,
@@ -40,6 +49,15 @@ const TEXT = {
     loginCard: "Log in to book this slot", loginCardNote: "This slot is kept. After login, confirm it on the card.",
     loginOnly: "Log in to continue", loginOnlyNote: "Your appointments are shown only after you log in.",
     statusWord: { confirmed: "Confirmed", cancelled: "Cancelled" },
+    dash: "My Dashboard", backToChat: "← Chat", nextAppt: "Next appointment", noNext: "No upcoming appointment.",
+    tabs: { appointments: "Appointments", prescriptions: "Prescriptions", lab_tests: "Lab Tests" },
+    upcoming: "Upcoming", past: "Past visits", view: "View", hide: "Hide",
+    viewRx: "View prescription", viewReport: "View report", doctor: "Doctor", visit: "Visit",
+    orderedOn: "Ordered", noReport: "Report not released yet. It will appear here when ready.",
+    noRx: "No prescriptions yet.", noLab: "No lab tests yet.",
+    labSteps: ["Ordered", "Sample collected", "Processing", "Report available"],
+    openTab: { lab_tests: "Open Lab Tests", prescriptions: "Open Prescriptions", appointments: "Open Appointments" },
+    docNote: "Documents are the hospital's original records, not written by AI. Ask your doctor to explain them.",
   },
 };
 
@@ -123,7 +141,7 @@ function applyLanguage(lang) {
 async function start(lang) {
   state.language = lang;
   applyLanguage(lang);
-  $("welcome").hidden = true; $("chat").hidden = false;
+  show("chat");
   $("newBtn").hidden = false; $("langBtn").hidden = false;
   $("log").innerHTML = "";
   try {
@@ -237,53 +255,114 @@ async function loginNext() {
 async function logout() {
   await fetch("/api/logout", { method: "POST" }).catch(() => {});
   state.patient = null;
-  if ($("apptsDlg").open) $("apptsDlg").close();
-  $("apptsBody").innerHTML = "";                     // private details screen se hatao
+  dash.data = null;
+  $("nextAppt").innerHTML = ""; $("tabPanel").innerHTML = "";   // private details screen se hatao
   if (state.language) await start(state.language);  // purani baat-cheet bhi screen se hat jaati hai
-  else renderAuth();
+  else { show("welcome"); renderAuth(); }
 }
 
-async function openAppointments() {
+// ---------- Mera Dashboard (Lesson 5) ----------
+// Teen tabs. Har list aur har document server se, login kiye patient tak simit. Documents protected
+// endpoint se khulte hain (link save karke baad me kholein to bhi wahi jaanch).
+const dash = { tab: "appointments", data: null };
+
+function show(view) {   // "chat" | "dash" | "welcome"
+  $("dash").hidden = view !== "dash";
+  $("chat").hidden = view !== "chat";
+  $("welcome").hidden = view !== "welcome";
+}
+
+async function openDashboard(tab) {
+  if (!state.patient) return openLogin(() => openDashboard(tab));
+  dash.tab = tab || dash.tab;
   const t = TEXT[state.language || "English"];
-  $("apptsTitle").textContent = t.appts; $("apptsClose").textContent = t.close;
-  $("apptsBody").innerHTML = "";
-  $("apptsDlg").showModal();
-  const r = await fetch("/api/me/appointments");
-  if (r.status === 401) { $("apptsDlg").close(); await refreshMe(); return openLogin(); }
-  const list = (await r.json()).appointments || [];
-  if (!list.length) { $("apptsBody").textContent = t.noAppts; return; }
-  const ul = document.createElement("div");
-  ul.className = "appt-list";
-  for (const a of list) {
-    const b = document.createElement("button");
-    b.className = "appt-item";
-    b.innerHTML = `<b>${escapeHtml(a.appointment_id)}</b><span>${escapeHtml(a.department)} · ${escapeHtml(fmtDate(a.date))} · ${escapeHtml(fmtTime(a.time))}</span><em class="${a.status}">${escapeHtml(t.statusWord[a.status] || a.status)}</em>`;
-    b.onclick = () => openAppointment(a.appointment_id);
-    ul.appendChild(b);
+  $("dashTitle").textContent = `${t.dash} · ${state.patient.name}`;
+  $("backToChat").textContent = t.backToChat;
+  document.querySelectorAll(".tab").forEach((b) => (b.textContent = t.tabs[b.dataset.tab]));
+  show("dash");
+  const get = (u) => fetch(u).then((r) => (r.status === 401 ? Promise.reject(401) : r.json()));
+  try {
+    const [a, p, l] = await Promise.all([get("/api/me/appointments"), get("/api/me/prescriptions"), get("/api/me/lab-tests")]);
+    dash.data = { appointments: a.appointments || [], prescriptions: p.prescriptions || [], lab_tests: l.lab_tests || [] };
+  } catch (e) {   // session khatam: dobara login
+    await refreshMe();
+    return openLogin(() => openDashboard(tab));
   }
-  $("apptsBody").appendChild(ul);
+  renderNext(); renderTab();
 }
 
-async function openAppointment(ref) {
-  const t = TEXT[state.language || "English"], ct = CARD_TEXT[state.language || "English"];
-  const r = await fetch(`/api/me/appointments/${encodeURIComponent(ref)}`);
-  if (!r.ok) { $("apptsBody").textContent = r.status === 401 ? t.loginFail : "Appointment not found"; return; }
-  const a = await r.json();
-  const rows = [[ct.appointment, a.appointment_id], [ct.department, a.department], ["📍", a.location],
-                [ct.date, fmtDate(a.date)], [ct.time, fmtTime(a.time)], [ct.status, t.statusWord[a.status] || a.status]];
-  $("apptsBody").innerHTML = `<table class="appt-detail">${rows.map(([k, v]) =>
-    `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(String(v))}</td></tr>`).join("")}</table>
-    <button type="button" class="ghost" id="apptBack">${escapeHtml(t.back)}</button>`;
-  $("apptBack").onclick = openAppointments;
+function today() { return new Date().toLocaleDateString("en-CA"); }   // YYYY-MM-DD (browser ka din)
+
+function renderNext() {
+  const t = TEXT[state.language || "English"];
+  const next = dash.data.appointments.filter((a) => a.status === "confirmed" && a.date >= today())
+    .sort((x, y) => (x.date + x.time).localeCompare(y.date + y.time))[0];
+  $("nextAppt").innerHTML = `<div class="next-label">${escapeHtml(t.nextAppt)}</div>` + (next
+    ? `<div class="next-main">${escapeHtml(fmtDate(next.date))} · ${escapeHtml(fmtTime(next.time))}</div>
+       <div class="next-sub">${escapeHtml(next.department)} · ${escapeHtml(next.location)} · <b>${escapeHtml(next.appointment_id)}</b></div>`
+    : `<div class="next-sub">${escapeHtml(t.noNext)}</div>`);
 }
+
+function renderTab() {
+  const t = TEXT[state.language || "English"], ct = CARD_TEXT[state.language || "English"];
+  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === dash.tab));
+  const panel = $("tabPanel");
+  panel.innerHTML = "";
+  const item = (html) => { const d = document.createElement("div"); d.className = "rec"; d.innerHTML = html; panel.appendChild(d); return d; };
+  const heading = (text) => { const h = document.createElement("h3"); h.textContent = text; panel.appendChild(h); };
+  if (dash.tab === "appointments") {
+    const now = today(), list = dash.data.appointments;
+    for (const [label, rows] of [[t.upcoming, list.filter((a) => a.date >= now)], [t.past, list.filter((a) => a.date < now).reverse()]]) {
+      if (!rows.length) continue;
+      heading(label);
+      for (const a of rows) {
+        const d = item(`<div class="rec-main"><b>${escapeHtml(a.department)}</b><span>${escapeHtml(fmtDate(a.date))} · ${escapeHtml(fmtTime(a.time))}</span></div>
+          <em class="pill ${a.status}">${escapeHtml(t.statusWord[a.status] || a.status)}</em>
+          <button type="button" class="ghost small">${escapeHtml(t.view)}</button>
+          <div class="rec-more" hidden>${escapeHtml(ct.appointment)}: <b>${escapeHtml(a.appointment_id)}</b> · 📍 ${escapeHtml(a.location)}</div>`);
+        const btn = d.querySelector("button"), more = d.querySelector(".rec-more");
+        btn.onclick = () => { more.hidden = !more.hidden; btn.textContent = more.hidden ? t.view : t.hide; };
+      }
+    }
+    if (!list.length) panel.textContent = t.noNext;
+  } else if (dash.tab === "prescriptions") {
+    if (!dash.data.prescriptions.length) { panel.textContent = t.noRx; return; }
+    for (const p of dash.data.prescriptions) {
+      item(`<div class="rec-main"><b>${escapeHtml(p.department)}</b><span>${escapeHtml(t.visit)} ${escapeHtml(fmtDate(p.visit_date))} · ${escapeHtml(t.doctor)}: ${escapeHtml(p.doctor)}</span></div>
+        <a class="btn-confirm small" target="_blank" rel="noopener" href="/api/me/prescriptions/${encodeURIComponent(p.prescription_id)}/document">${escapeHtml(t.viewRx)}</a>`);
+    }
+    panel.insertAdjacentHTML("beforeend", `<p class="doc-note">${escapeHtml(t.docNote)}</p>`);
+  } else {
+    if (!dash.data.lab_tests.length) { panel.textContent = t.noLab; return; }
+    for (const l of dash.data.lab_tests) {
+      const steps = t.labSteps.map((s, i) => `<li class="${i < l.step ? "done" : ""}${i === l.step - 1 ? " now" : ""}">${escapeHtml(s)}</li>`).join("");
+      item(`<div class="rec-main"><b>${escapeHtml(l.test_name)}</b><span>${escapeHtml(t.orderedOn)}: ${escapeHtml(fmtDate(l.ordered_on))} · ${escapeHtml(l.department)}</span>
+          <ol class="steps">${steps}</ol></div>` + (l.report_available
+        ? `<a class="btn-confirm small" target="_blank" rel="noopener" href="/api/me/lab-tests/${encodeURIComponent(l.test_id)}/report">${escapeHtml(t.viewReport)}</a>`
+        : `<span class="no-report">${escapeHtml(t.noReport)}</span>`));
+    }
+    panel.insertAdjacentHTML("beforeend", `<p class="doc-note">${escapeHtml(t.docNote)}</p>`);
+  }
+}
+
+function leaveDashboard() {
+  show(state.language ? "chat" : "welcome");
+}
+
+document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => { dash.tab = b.dataset.tab; renderTab(); }));
+$("backToChat").onclick = leaveDashboard;
 
 $("loginBtn").onclick = () => (state.patient ? logout() : openLogin());
 $("loginNext").onclick = loginNext;
 $("loginCancel").onclick = () => $("loginDlg").close();
 $("lcode").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loginNext(); } });
-$("apptsBtn").onclick = openAppointments;
-$("apptsClose").onclick = () => $("apptsDlg").close();
-refreshMe();
+$("apptsBtn").onclick = () => openDashboard("appointments");
+refreshMe().then(() => {   // saved document link par login ke liye wapas aaye: login, phir dashboard
+  if (new URLSearchParams(location.search).get("login") === "1" && !state.patient) {
+    history.replaceState(null, "", "/");
+    openLogin(() => openDashboard("prescriptions"));
+  }
+});
 
 fetch("/api/info").then((r) => r.json()).then((h) => {
   HOSPITAL = h;
@@ -376,8 +455,23 @@ function addLoginCard(c) {
   $("log").scrollTop = $("log").scrollHeight;
 }
 
+function addOpenTabCard(c) {
+  // Chat records nahin dikhata: sirf dashboard ka sahi tab kholne ka button.
+  const t = TEXT[state.language], section = (c.summary || {}).section || "lab_tests";
+  const row = document.createElement("div");
+  row.className = "row bot";
+  row.innerHTML = '<img src="/static/logo.svg" class="avatar" alt="">';
+  const b = document.createElement("button");
+  b.className = "btn-confirm open-tab"; b.textContent = t.openTab[section] || t.dash;
+  b.onclick = () => openDashboard(section);
+  row.appendChild(b);
+  $("log").appendChild(row);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
 function addCard(c) {
   if (c.kind === "login") return addLoginCard(c);
+  if (c.kind === "open_dashboard") return addOpenTabCard(c);
   const t = CARD_TEXT[state.language];
   const row = document.createElement("div");
   row.className = "row bot";

@@ -2,6 +2,21 @@
 
 Har badlaav yahan likhein: kya badla, kyun, aur kaun se tests jode.
 
+## 0.11.0 (Lesson 5: Patient Dashboard aur Health Records)
+- **Mera Dashboard / My Dashboard:** chat se alag screen. Upar Agli Appointment, phir teen tabs:
+  Appointments (aane wali aur pichhli visit), Prescriptions (visit date, department, doctor, document),
+  Lab Tests (Ordered -> Sample collected -> Processing -> Report available).
+- **Status aur report alag:** status har stage par dikhta hai; "View report" sirf tab jab source system
+  report ko patient ke liye release kare. Prescription read-only, hospital ka issued document.
+- **Protected documents:** `GET /api/me/lab-tests`, `/api/me/lab-tests/{id}/report`, `/api/me/prescriptions`,
+  `/api/me/prescriptions/{id}/document`. Har baar login + maalik + release/issue ki jaanch; doosre ka ya
+  anjaan = wahi generic 404; `Cache-Control: no-store`. Logout ke baad saved link browser me khole to login.
+- Model records nahin padhta ya likhta: purana `lab_desk` (report ID + phone lookup) hataya; naya
+  `records_desk` sirf `open_my_records` se dashboard ka tab kholne ka button deta hai.
+- Synthetic records aur PDFs `seed_demo_patients.py` me (A: ek processing test, ek released report, ek
+  prescription; B: alag report aur prescription; dono ki ek pichhli visit). PDF bina extra library ke.
+- `demo_access.py` me Lesson 5 ke checks (10/10). Tests me `.env` ka `HIS_MODE` ab asar nahin karta. Tests 123 se 126.
+
 ## 0.10.0 (Lesson 4: patient login aur My Appointments)
 - **Login (authentication):** Patient ID + registered phone -> 6 ank ka code (5 minute, ek baar, 5 koshish).
   Demo me SMS nahin, isliye code screen par. Server-side session; browser ke paas sirf HttpOnly, SameSite=Strict

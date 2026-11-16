@@ -15,6 +15,8 @@ def cards_from_event(event) -> list[dict]:
         response = part.function_response.response if part.function_response else None
         if isinstance(response, dict) and response.get("status") == "needs_confirmation":
             cards.append({k: response.get(k) for k in CARD_FIELDS})
+        elif isinstance(response, dict) and response.get("status") == "open_dashboard":
+            cards.append({"kind": "open_dashboard", "summary": {"section": response.get("section")}})
         elif isinstance(response, dict) and response.get("status") == "login_required":
             cards.append({"kind": "login", "summary": response.get("preview") or {}})   # login maangne wala card
     return cards

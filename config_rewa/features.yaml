@@ -4,4 +4,4 @@ features:
   appointments: true
   hospital_faq: true
   registration: true
-  lab_reports: false
+  health_records: true

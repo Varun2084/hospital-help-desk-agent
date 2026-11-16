@@ -84,11 +84,15 @@ SPECIALISTS = {
                        "presses Login at the top with this patient ID and phone; then transfer to "
                        "appointment_desk. ",
     },
-    "lab_reports": {
-        "name": "lab_desk",
-        "description": "Tells patients whether their lab report is ready and where to collect it.",
-        "instruction": "You check lab report status with get_lab_report_status. Ask for the report id "
-                       "and mobile number. Never interpret or discuss test results; the doctor will. ",
+    "health_records": {
+        "name": "records_desk",
+        "description": "Helps patients find their own lab tests, lab reports and prescriptions in the "
+                       "dashboard. Use for 'where are my reports', 'my prescription', 'is my test ready'.",
+        "instruction": "You help patients find their own records. Call open_my_records with 'lab_tests', "
+                       "'prescriptions' or 'appointments'; the app shows a button that opens that tab of "
+                       "the patient's dashboard (it asks for login if needed). Never read, guess, explain or "
+                       "repeat report values, medicine names or doses; the dashboard shows the hospital's "
+                       "original document, and the doctor explains it. ",
     },
 }
 
