@@ -17,3 +17,5 @@ jobs:
         run: pytest -q
       - name: Booking flows against the HIS sandbox (synthetic)
         run: python scripts/demo_flows.py
+      - name: Login and My Appointments access checks (synthetic)
+        run: python scripts/demo_access.py
