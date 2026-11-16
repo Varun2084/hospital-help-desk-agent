@@ -1,4 +1,4 @@
-"""Booking aur cancel ke niyam: Confirm button (backend jaanch), tareekh, beete slot, do log ek slot."""
+"""Booking aur cancel: login kiya patient, Confirm button (backend jaanch), tareekh, beete slot, do log ek slot."""
 
 import threading
 from datetime import datetime, timedelta
@@ -20,25 +20,30 @@ MONDAY = "2026-11-16"
 PHONE = "9876543210"
 
 
+ASHA, RAVI = "DEMO-ASHA", "DEMO-RAVI"
+
+
 @pytest.fixture(autouse=True)
 def registered_patients():
-    """Booking sirf registered patient ki: do synthetic patient pehle se registered."""
-    return {"asha": register_patient("Asha Verma", PHONE), "ravi": register_patient("Ravi Kumar", "9123456789")}
+    """Do synthetic registered patient. Tests me 'login' = ctx ki state me patient ID (web app yahi karta hai)."""
+    register_patient("Asha Verma", PHONE, patient_id=ASHA)
+    register_patient("Ravi Kumar", "9123456789", patient_id=RAVI)
+    return {"asha": ASHA, "ravi": RAVI}
 
 
-def _request(time="09:00", name="Asha Verma", phone=PHONE, **who):
-    return request_booking(name, phone, "cardiology", MONDAY, time, make_ctx("09:00 book karna hai", **who))
+def _request(time="09:00", patient=ASHA, **who):
+    return request_booking("cardiology", MONDAY, time, make_ctx("09:00 book karna hai", patient=patient, **who))
 
 
-def _confirm(pending, user="patient_001", session="s1") -> dict:
-    """Patient ne card par Confirm dabaya: card ka action_id aur fingerprint backend ko jaate hain."""
-    return confirm_pending(pending["action_id"], user, session, pending["fingerprint"])
+def _confirm(pending, user="patient_001", session="s1", patient=ASHA) -> dict:
+    """Patient ne card par Confirm dabaya: card ka action_id, fingerprint aur login ka patient backend ko jaate hain."""
+    return confirm_pending(pending["action_id"], user, session, pending["fingerprint"], patient)
 
 
-def _book(time="09:00", **who) -> dict:
+def _book(time="09:00", patient=ASHA, **who) -> dict:
     """Poora sahi raasta: model ki arzi, phir patient ka Confirm button."""
-    pending = _request(time, **who)
-    return _confirm(pending, who.get("user", "patient_001"), who.get("session", "s1"))
+    pending = _request(time, patient, **who)
+    return _confirm(pending, who.get("user", "patient_001"), who.get("session", "s1"), patient)
 
 
 def _count() -> int:
@@ -105,11 +110,12 @@ def test_book_then_slot_disappears_then_cancel():
     booking = _book()
     assert booking["status"] == "booked" and booking["phone"] == "98XXXXXX10"
     assert "09:00" not in check_available_slots("cardiology", MONDAY)["free_slots"]
-    assert _request(name="Ravi Kumar", phone="9123456789")["status"] == "error"
+    assert _request(patient=RAVI)["status"] == "error"
 
     apt = booking["appointment_id"]
-    assert request_cancellation(apt, "9000000000", make_ctx("cancel"))["status"] == "error"
-    pending = request_cancellation(apt, PHONE, make_ctx("cancel karna hai", turn="turn-5"))
+    assert request_cancellation(apt, make_ctx("cancel", patient=RAVI))["status"] == "error"   # Ravi ki nahin
+    assert request_cancellation(apt, make_ctx("cancel"))["status"] == "login_required"
+    pending = request_cancellation(apt, make_ctx("cancel karna hai", turn="turn-5", patient=ASHA))
     assert pending["status"] == "needs_confirmation" and _count() == 1
     done = _confirm(pending)
     assert done["status"] == "cancelled"
@@ -120,7 +126,7 @@ def test_compact_date_cannot_bypass_a_booked_slot():
     """Review me mila: '20261116' likhne par booked slot khaali dikhta tha aur dobara book ho jaata tha."""
     _book()
     assert check_available_slots("cardiology", "20261116")["status"] == "error"
-    compact = request_booking("Ravi Kumar", "9123456789", "cardiology", "20261116", "09:00", make_ctx())
+    compact = request_booking("cardiology", "20261116", "09:00", make_ctx(patient=RAVI))
     assert compact["status"] == "error"
     assert _count() == 1
 
@@ -144,14 +150,14 @@ def test_slot_that_passes_while_waiting_is_not_booked(monkeypatch):
 def test_two_patients_one_slot_only_one_wins():
     """Do alag patient ek hi slot ki arzi dete hain aur ek saath Confirm dabate hain."""
     a = _request(user="patient_A", session="sA")
-    b = _request(name="Ravi Kumar", phone="9123456789", user="patient_B", session="sB")
+    b = _request(patient=RAVI, user="patient_B", session="sB")
     results = []
 
-    def confirm(pending, user, session):
-        results.append(_confirm(pending, user, session))
+    def confirm(pending, user, session, patient):
+        results.append(_confirm(pending, user, session, patient))
 
-    threads = [threading.Thread(target=confirm, args=(a, "patient_A", "sA")),
-               threading.Thread(target=confirm, args=(b, "patient_B", "sB"))]
+    threads = [threading.Thread(target=confirm, args=(a, "patient_A", "sA", ASHA)),
+               threading.Thread(target=confirm, args=(b, "patient_B", "sB", RAVI))]
     for t in threads:
         t.start()
     for t in threads:
@@ -162,37 +168,44 @@ def test_two_patients_one_slot_only_one_wins():
     assert loser["free_slots"] and "09:00" not in loser["free_slots"]   # card par naye samay
 
 
-def test_unregistered_patient_cannot_book():
-    """Pehle registration, phir appointment: bina registration ke arzi bhi nahin banti."""
-    result = _request(name="Naya Patient", phone="9988776655")
-    assert result["status"] == "not_registered" and "registration" in result["message"]
+def test_booking_needs_a_login_and_keeps_the_slot():
+    """Bina login: arzi nahin banti, par chuna hua slot preview me lautta hai (login ke baad wahi)."""
+    result = _request(patient=None)
+    assert result["status"] == "login_required"
+    assert result["preview"] == {"department": "Cardiology", "department_id": "cardiology", "date": MONDAY,
+                                 "weekday": "Monday", "time": "09:00"}
     with db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM pending_actions").fetchone()[0] == 0
+    assert _request(patient=ASHA)["status"] == "needs_confirmation"
 
 
-def test_booking_uses_the_registered_patient_id(registered_patients):
-    pending = _request(name="  asha   VERMA ")          # naam me chhote-bade akshar aur space ka farq nahin
-    assert pending["summary"]["patient_id"] == registered_patients["asha"]
-    assert pending["summary"]["patient_name"] == "Asha Verma"
+def test_booking_uses_the_logged_in_patient_not_the_chat():
+    """Patient login se aata hai. Tool me naam ya phone ka argument hi nahin, isliye chat se badal nahin sakta."""
+    pending = _request()
+    assert pending["summary"]["patient_name"] == "Asha Verma" and "patient_id" not in pending["summary"]
     done = _confirm(pending)
-    assert done["patient_id"] == registered_patients["asha"]
+    assert done["status"] == "booked"
     with db.connect() as conn:
         row = conn.execute("SELECT patient_ref, slot_id FROM appointments").fetchone()
-    assert tuple(row) == (registered_patients["asha"], "SLOT-cardiology-20261116-0900")
+    assert tuple(row) == (ASHA, "SLOT-cardiology-20261116-0900")
 
 
-def test_registration_after_booking_is_not_repeated(registered_patients):
+def test_only_the_same_login_can_press_confirm():
+    """Asha ki arzi: logout ho chuka (None) ya Ravi ka login ho to Confirm kaam nahin karta."""
+    pending = _request()
+    assert _confirm(pending, patient=None)["status"] == "error"
+    assert _confirm(pending, patient=RAVI)["status"] == "error"
+    assert _count() == 0 and _confirm(pending)["status"] == "booked"
+
+
+def test_registration_after_booking_is_not_repeated():
     """Screenshot me mila: appointment ke baad bhi naya registration ban gaya tha."""
     assert _book()["status"] == "booked"
     again = request_registration("asha verma", 34, "female", PHONE, "Rewa", make_ctx("register", turn="turn-9"))
-    assert again["status"] == "already_registered" and again["patient_id"] == registered_patients["asha"]
+    assert again["status"] == "already_registered" and again["patient_id"] == ASHA
     with db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM patients WHERE phone = ?", (PHONE,)).fetchone()[0] == 1
 
 
 def test_closed_department_cannot_be_booked():
-    assert request_booking("Asha Verma", PHONE, "dental", MONDAY, "09:00", make_ctx())["status"] == "error"
-
-
-def test_invalid_phone_is_rejected():
-    assert "10 ankon" in _request(phone="12345")["message"]
+    assert request_booking("dental", MONDAY, "09:00", make_ctx(patient=ASHA))["status"] == "error"

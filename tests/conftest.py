@@ -20,13 +20,16 @@ def isolated_db_and_clock(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "now", lambda: FIXED_NOW)
 
 
-def make_ctx(text: str = "", turn: str = "turn-1", user: str = "patient_001", session: str = "s1"):
-    """ADK ke ToolContext ka chhota nakli roop: kaun patient, kaun si baat-cheet, kaun sa turn, kya kaha."""
+def make_ctx(text: str = "", turn: str = "turn-1", user: str = "patient_001", session: str = "s1",
+             patient: str | None = None):
+    """ADK ke ToolContext ka chhota nakli roop: kaun browser, kaun si baat-cheet, kaun sa turn, kya kaha,
+    aur (login ho to) kaun sa patient. Login wala patient web app 'temp:patient_ref' state me daalta hai."""
     return SimpleNamespace(
         user_id=user,
         session=SimpleNamespace(id=session),
         invocation_id=turn,
         user_content=types.Content(role="user", parts=[types.Part(text=text)]),
+        state={"temp:patient_ref": patient} if patient else {},
     )
 
 
@@ -36,9 +39,9 @@ def ctx():
 
 
 def register_patient(full_name: str = "Asha Verma", phone: str = "9876543210", age: int = 34,
-                     gender: str = "Female", city: str = "Rewa") -> str:
-    """Test ke liye seedha registered patient (booking sirf registered patient ki hoti hai). Patient ID lautata hai."""
-    patient_id = db.new_patient_id()
+                     gender: str = "Female", city: str = "Rewa", patient_id: str | None = None) -> str:
+    """Test ke liye seedha registered patient (booking sirf login kiye patient ki). Patient ID lautata hai."""
+    patient_id = patient_id or db.new_patient_id()
     with db.connect() as conn, conn:
         conn.execute("INSERT INTO patients (id, full_name, age, gender, phone, city, guardian_name, created_at) "
                      "VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",

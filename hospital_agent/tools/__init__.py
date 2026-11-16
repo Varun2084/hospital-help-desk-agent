@@ -11,6 +11,7 @@ Naya feature jodne ke 4 kadam:
 
 from hospital_agent.tools.appointments import (
     check_available_slots,
+    my_appointments,
     request_booking,
     request_cancellation,
     today_date,
@@ -26,7 +27,7 @@ from hospital_agent.tools.registration import request_registration
 
 FEATURE_TOOLS = {
     "department_guide": [list_departments, get_department_info, suggest_department],
-    "appointments": [today_date, check_available_slots, request_booking, request_cancellation],
+    "appointments": [today_date, check_available_slots, request_booking, my_appointments, request_cancellation],
     "hospital_faq": [get_hospital_info],
     "lab_reports": [get_lab_report_status],
     "registration": [request_registration],

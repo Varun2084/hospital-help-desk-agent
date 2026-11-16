@@ -41,6 +41,23 @@ CREATE TABLE IF NOT EXISTS patients (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_patient_per_phone_and_name ON patients (phone, full_name);
 
+-- Login (demo): Patient ID + phone par ek baar ka code (OTP). Code ka sirf hash rakha jaata hai.
+CREATE TABLE IF NOT EXISTS login_codes (
+    patient_id  TEXT PRIMARY KEY,
+    code_hash   TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    attempts    INTEGER NOT NULL DEFAULT 0
+);
+
+-- Server-side login session. Browser ke paas sirf cookie me random token; yahan uska hash.
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash  TEXT PRIMARY KEY,
+    patient_id  TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    revoked     INTEGER NOT NULL DEFAULT 0
+);
+
 -- Booking, cancel ya registration ki "arzi" jo patient ke Confirm button ka intezaar kar rahi hai.
 CREATE TABLE IF NOT EXISTS pending_actions (
     id                 TEXT PRIMARY KEY,
@@ -235,3 +252,51 @@ def commit_registration(conn, action_id: str, patient_id: str, p: dict, outcome:
             (patient_id, p["full_name"], p["age"], p["gender"], p["phone"], p["city"], p.get("guardian_name"),
              now_text()),
         )
+
+
+# ---------- login (auth.py inhe istemaal karta hai) ----------
+
+def save_login_code(conn, patient_id: str, code_hash: str, expires_at: str) -> None:
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO login_codes (patient_id, code_hash, expires_at, attempts) "
+                     "VALUES (?, ?, ?, 0)", (patient_id, code_hash, expires_at))
+
+
+def get_login_code(conn, patient_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM login_codes WHERE patient_id = ?", (patient_id,)).fetchone()
+
+
+def count_login_attempt(conn, patient_id: str) -> None:
+    with conn:
+        conn.execute("UPDATE login_codes SET attempts = attempts + 1 WHERE patient_id = ?", (patient_id,))
+
+
+def delete_login_code(conn, patient_id: str) -> None:
+    with conn:
+        conn.execute("DELETE FROM login_codes WHERE patient_id = ?", (patient_id,))
+
+
+def create_auth_session(conn, token_hash: str, patient_id: str, expires_at: str) -> None:
+    with conn:
+        conn.execute("INSERT INTO auth_sessions (token_hash, patient_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+                     (token_hash, patient_id, now_text(), expires_at))
+
+
+def get_auth_session(conn, token_hash: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM auth_sessions WHERE token_hash = ? AND revoked = 0", (token_hash,)).fetchone()
+
+
+def revoke_auth_session(conn, token_hash: str) -> None:
+    with conn:
+        conn.execute("UPDATE auth_sessions SET revoked = 1 WHERE token_hash = ?", (token_hash,))
+
+
+def list_appointments_for_patient(conn, patient_ref: str) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM appointments WHERE patient_ref = ? ORDER BY date, time",
+                        (patient_ref,)).fetchall()
+
+
+def find_appointment_for_patient(conn, patient_ref: str, appointment_id: str) -> sqlite3.Row | None:
+    """Reference aur maalik dono ek hi query me: doosre patient ka reference ho to kuch nahin milta."""
+    return conn.execute("SELECT * FROM appointments WHERE id = ? AND patient_ref = ?",
+                        (appointment_id, patient_ref)).fetchone()

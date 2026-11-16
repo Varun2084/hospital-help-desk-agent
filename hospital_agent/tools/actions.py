@@ -33,15 +33,20 @@ def _load_own(conn, action_id: str, user_id: str, session_id: str):
     return action
 
 
-def confirm_pending(action_id: str, user_id: str, session_id: str, card_fingerprint: str | None = None) -> dict:
+def confirm_pending(action_id: str, user_id: str, session_id: str, card_fingerprint: str | None = None,
+                    patient_ref: str | None = None) -> dict:
     """Confirm button. Backend khud jaanchta hai: arzi isi patient aur baat-cheet ki hai, wahi hai jo card
     par dikhi (fingerprint), abhi pending hai aur samay ke andar hai. Phir HIS me slot ki taaza haalat dekh kar
-    commit hota hai (complete_booking)."""
+    commit hota hai (complete_booking). Booking ya cancel ki arzi par button dabane wala wahi login kiya hua
+    patient hona chahiye jiske naam par arzi bani (patient_ref)."""
     moment = common.now()
     with db.connect() as conn:
         action = _load_own(conn, action_id, user_id, session_id)
         if action is None:
             return error("Yeh request nahin mili. Kripya dobara shuru karein.")
+        owner_patient = json.loads(action["payload"]).get("patient_ref")
+        if owner_patient is not None and owner_patient != patient_ref:   # booking/cancel: wahi login chahiye
+            return error("Yeh request nahin mili. Kripya login karke dobara shuru karein.")
         if card_fingerprint is not None and card_fingerprint != fingerprint(action["payload"]):
             return error("Card ki details badal gayi hain. Kripya naya request banayein.")
         # Pehle ho chuki? Wahi nateeja (button dobara dabane se doosri booking nahin).

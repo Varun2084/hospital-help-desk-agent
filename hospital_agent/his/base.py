@@ -62,6 +62,10 @@ class HIS(Protocol):
 
     def find_by_request(self, request_id: str) -> Booking | None: ...
 
-    def get_booking(self, reference: str) -> Booking | None: ...
+    def list_for_patient(self, patient_ref: str) -> list[Booking]:
+        """Sirf is patient ki bookings."""
+
+    def find_for_patient(self, patient_ref: str, reference: str) -> Booking | None:
+        """Reference se booking, par sirf tab jab woh isi patient ki ho. Doosre ki ho to None (jaise mili hi nahin)."""
 
     def cancel(self, reference: str, patient_ref: str) -> Booking: ...

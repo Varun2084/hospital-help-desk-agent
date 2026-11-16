@@ -7,7 +7,7 @@
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="/static/style.css?v=0.9.0">
+<link rel="stylesheet" href="/static/style.css?v=0.10.0">
 </head>
 <body>
 <div class="app">
@@ -20,6 +20,9 @@
       </div>
     </div>
     <div class="actions">
+      <span class="who" id="who" hidden></span>
+      <button class="ghost" id="apptsBtn" hidden></button>
+      <button class="ghost primary" id="loginBtn"></button>
       <button class="ghost" id="langBtn" hidden></button>
       <button class="ghost" id="newBtn" hidden data-t="new">नई बातचीत</button>
     </div>
@@ -56,8 +59,33 @@
     </form>
   </main>
 
+  <!-- Login (demo): Patient ID + phone -> code. Asli app me code SMS se aata. -->
+  <dialog id="loginDlg" class="dlg">
+    <form method="dialog" id="loginForm">
+      <h2 id="loginTitle"></h2>
+      <label><span id="pidLabel"></span><input id="pid" autocomplete="off" maxlength="40" placeholder="DEMO-PATIENT-A"></label>
+      <label><span id="phoneLabel"></span><input id="lphone" inputmode="numeric" maxlength="10" placeholder="9000000011"></label>
+      <div id="codeBox" hidden>
+        <div class="demo-code" id="demoCode"></div>
+        <label><span id="codeLabel"></span><input id="lcode" inputmode="numeric" maxlength="6"></label>
+      </div>
+      <div class="dlg-error" id="loginError"></div>
+      <div class="dlg-actions">
+        <button type="button" class="ghost" id="loginCancel"></button>
+        <button type="button" class="btn-confirm" id="loginNext"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- My Appointments: sirf login kiye patient ki bookings (server tay karta hai) -->
+  <dialog id="apptsDlg" class="dlg">
+    <h2 id="apptsTitle"></h2>
+    <div id="apptsBody"></div>
+    <div class="dlg-actions"><button type="button" class="ghost" id="apptsClose"></button></div>
+  </dialog>
+
   <footer class="foot" data-t="foot">यह डॉक्टर नहीं है और बीमारी या दवा नहीं बताता। · This is not a doctor and does not diagnose.</footer>
 </div>
-<script src="/static/app.js?v=0.9.0"></script>
+<script src="/static/app.js?v=0.10.0"></script>
 </body>
 </html>

@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # .env ko agent import hone se PEHLE padhna zaroori hai
 
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request, Response  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from google.adk.events import Event, EventActions  # noqa: E402
@@ -23,14 +23,30 @@ from google.genai import types  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 
-from hospital_agent import db  # noqa: E402
+from hospital_agent import auth, db, his  # noqa: E402
 from hospital_agent.agent import app as adk_app  # noqa: E402
 from hospital_agent.cards import cards_from_event, record_outcome  # noqa: E402
 from hospital_agent.config import load_hospital_info  # noqa: E402
 from hospital_agent.safety import detect_risk, risk_message  # noqa: E402
 from hospital_agent.tools.actions import confirm_pending, discard_pending  # noqa: E402
+from hospital_agent.tools.appointments import appointment_view  # noqa: E402
+from hospital_agent.tools.common import AUTH_KEY  # noqa: E402
 
 STATIC_DIR = Path(__file__).parent / "static"
+COOKIE = "opd_session"
+OWNER_KEY = "session_owner"   # login ke baad yeh baat-cheet kis patient ki hai (server likhta hai)
+
+
+def current_patient(request: Request):
+    """Authentication: cookie ke token se server patient tay karta hai. Browser ka bheja user_id kabhi nahin."""
+    return auth.patient_for_token(request.cookies.get(COOKIE))
+
+
+def require_patient(request: Request):
+    patient = current_patient(request)
+    if patient is None:
+        raise HTTPException(status_code=401, detail="Login required")
+    return patient
 
 
 def _kind(action_id: str) -> str:
@@ -59,6 +75,16 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1000)
 
 
+class LoginStart(BaseModel):
+    patient_id: str = Field(min_length=4, max_length=40)
+    phone: str = Field(pattern=r"^[6-9]\d{9}$")
+
+
+class LoginVerify(BaseModel):
+    patient_id: str = Field(min_length=4, max_length=40)
+    code: str = Field(pattern=r"^\d{6}$")
+
+
 class ActionRequest(BaseModel):
     user_id: str = Field(min_length=8, max_length=64, pattern="^[A-Za-z0-9_-]+$")
     session_id: str = Field(min_length=8, max_length=64)
@@ -83,6 +109,56 @@ def create_app(runner: Runner | None = None, session_service=None) -> FastAPI:
         hospital = load_hospital_info()
         return {"hospital_name": hospital.hospital_name, "disclaimer": " ".join(hospital.disclaimer.split())}
 
+    # ---------- login (authentication) ----------
+    @web.post("/api/login/start")
+    async def login_start(req: LoginStart):
+        result = auth.start_login(req.patient_id, req.phone)
+        if result["status"] != "code_sent":
+            raise HTTPException(status_code=400, detail=result["message"])
+        return result
+
+    @web.post("/api/login/verify")
+    async def login_verify(req: LoginVerify, response: Response):
+        token = auth.verify_login(req.patient_id, req.code)
+        if token is None:
+            raise HTTPException(status_code=400, detail="Code galat hai ya purana ho gaya.")
+        response.set_cookie(COOKIE, token, max_age=auth.SESSION_HOURS * 3600, httponly=True, samesite="strict",
+                            secure=os.environ.get("COOKIE_SECURE") == "1")
+        patient = auth.patient_for_token(token)
+        return {"patient_id": patient["id"], "name": patient["full_name"]}
+
+    @web.post("/api/logout")
+    async def logout(request: Request, response: Response):
+        auth.logout(request.cookies.get(COOKIE))   # server par session band
+        response.delete_cookie(COOKIE)
+        return {"ok": True}
+
+    @web.get("/api/me")
+    async def me(request: Request):
+        patient = require_patient(request)
+        return {"patient_id": patient["id"], "name": patient["full_name"]}
+
+    # ---------- My Appointments (authorization: har query isi patient tak simit) ----------
+    @web.get("/api/me/appointments")
+    async def my_appointments(request: Request):
+        patient = require_patient(request)
+        try:
+            bookings = await run_in_threadpool(his.get_his().list_for_patient, patient["id"])
+        except his.HISError as e:
+            raise HTTPException(status_code=503, detail="Hospital system not available") from e
+        return {"appointments": [appointment_view(b) for b in bookings]}
+
+    @web.get("/api/me/appointments/{booking_ref}")
+    async def my_appointment(booking_ref: str, request: Request):
+        patient = require_patient(request)
+        try:
+            booking = await run_in_threadpool(his.get_his().find_for_patient, patient["id"], booking_ref.upper())
+        except his.HISError as e:
+            raise HTTPException(status_code=503, detail="Hospital system not available") from e
+        if booking is None:   # anjaan ya doosre patient ka: ek jaisa jawab, kuch disclose nahin
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        return appointment_view(booking)
+
     @web.post("/api/start")
     async def start(req: StartRequest):
         """Nayi baat-cheet: session banata hai aur chuni hui bhasha state me rakhta hai."""
@@ -93,7 +169,7 @@ def create_app(runner: Runner | None = None, session_service=None) -> FastAPI:
         return {"session_id": session.id, "language": req.language}
 
     @web.post("/api/chat")
-    async def chat(req: ChatRequest):
+    async def chat(req: ChatRequest, request: Request):
         session = await session_service.get_session(
             app_name=app_name, user_id=req.user_id, session_id=req.session_id)
         if session is None:
@@ -106,11 +182,18 @@ def create_app(runner: Runner | None = None, session_service=None) -> FastAPI:
             return {"replies": [{"desk": names["safety"], "text": risk_message(risk, language),
                                  "kind": "emergency"}]}
 
+        patient = current_patient(request)
+        owner = session.state.get(OWNER_KEY)
+        if owner and (patient is None or patient["id"] != owner):   # kisi aur login ki baat-cheet
+            raise HTTPException(status_code=403, detail="Nayi baat-cheet shuru karein.")
+        state_delta = {AUTH_KEY: patient["id"]} if patient else None   # sirf is turn ke liye
+        if patient and not owner:
+            state_delta[OWNER_KEY] = patient["id"]
         message = types.Content(role="user", parts=[types.Part(text=req.message)])
         replies, cards = [], []
         try:
-            async for event in runner.run_async(
-                    user_id=req.user_id, session_id=req.session_id, new_message=message):
+            async for event in runner.run_async(user_id=req.user_id, session_id=req.session_id,
+                                                new_message=message, state_delta=state_delta):
                 cards.extend(cards_from_event(event))   # Confirm card (model ki arzi)
                 if event.is_final_response() and event.content and event.content.parts:
                     text = "".join(p.text or "" for p in event.content.parts).strip()
@@ -125,7 +208,7 @@ def create_app(runner: Runner | None = None, session_service=None) -> FastAPI:
                     "error": type(e).__name__}
         return {"replies": replies, "cards": cards}
 
-    async def _own_session(req: ActionRequest):
+    async def _own_session(req: ActionRequest):  # baat-cheet isi browser ki ho
         session = await session_service.get_session(
             app_name=app_name, user_id=req.user_id, session_id=req.session_id)
         if session is None:
@@ -133,11 +216,13 @@ def create_app(runner: Runner | None = None, session_service=None) -> FastAPI:
         return session
 
     @web.post("/api/actions/confirm")
-    async def confirm(req: ActionRequest):
-        """Confirm appointment button. Model is raaste me nahin hai: backend khud jaanch kar commit karta hai."""
+    async def confirm(req: ActionRequest, request: Request):
+        """Confirm appointment button. Model is raaste me nahin hai: backend khud jaanch kar commit karta hai.
+        Booking/cancel ki arzi par login kiya hua patient wahi hona chahiye jiske naam par arzi bani."""
         session = await _own_session(req)
+        patient = current_patient(request)
         result = await run_in_threadpool(confirm_pending, req.action_id, req.user_id, req.session_id,
-                                         req.fingerprint)
+                                         req.fingerprint, patient["id"] if patient else None)
         await record_outcome(session_service, session, _kind(req.action_id), "Confirm", result)
         return {"result": result}
 

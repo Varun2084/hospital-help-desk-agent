@@ -33,6 +33,19 @@ def owner(tool_context: ToolContext) -> tuple[str, str]:
     return tool_context.user_id, tool_context.session.id
 
 
+# Web app har turn me login cookie se bharta hai. 'temp:' state save nahin hota, aur model ise badal nahin sakta.
+AUTH_KEY = "temp:patient_ref"
+
+
+def current_patient(tool_context: ToolContext):
+    """Login kiya hua patient (server ki pehchaan), ya None. Chat me likha naam ya ID yahan kabhi nahin aata."""
+    patient_ref = tool_context.state.get(AUTH_KEY) if getattr(tool_context, "state", None) is not None else None
+    if not patient_ref:
+        return None
+    with db.connect() as conn:
+        return db.get_patient(conn, patient_ref)
+
+
 def create_pending_action(kind: str, payload: dict, summary: dict, tool_context: ToolContext) -> dict:
     """Database me sirf arzi likhta hai. Asli kaam patient ke Confirm button ke baad hoga."""
     user_id, session_id = owner(tool_context)

@@ -2,6 +2,21 @@
 
 Har badlaav yahan likhein: kya badla, kyun, aur kaun se tests jode.
 
+## 0.10.0 (Lesson 4: patient login aur My Appointments)
+- **Login (authentication):** Patient ID + registered phone -> 6 ank ka code (5 minute, ek baar, 5 koshish).
+  Demo me SMS nahin, isliye code screen par. Server-side session; browser ke paas sirf HttpOnly, SameSite=Strict
+  cookie. Logout par session server par band.
+- **Pehchaan server se:** web app har turn me login cookie se patient ID tools ko deta hai (ADK `temp:` state:
+  sirf us turn ke liye, save nahin hota, model badal nahin sakta). `request_booking` me ab naam/phone ka argument
+  hi nahin; bina login `login_required` aur chuna slot preview me. Confirm par bhi login wala patient = arzi ka patient.
+- **My Appointments (authorization):** `GET /api/me/appointments` aur `/api/me/appointments/{booking_ref}`. Har
+  query login wale patient tak simit (`find_for_patient`); doosre patient ka reference = wahi generic 404.
+  Chat tool `my_appointments` bhi isi service se. HIS adapter aur Fake HIS me `list_for_patient`, `find_for_patient`.
+- Login ke baad baat-cheet us patient ki; logout ya doosre login par purani chat band (403), UI nayi chat kholta hai.
+- UI: Login / Logout, "My appointments" (list -> detail), login card (slot yaad), "Meri appointments" chip.
+- `scripts/seed_demo_patients.py` (A aur B, ek-ek booking), `scripts/demo_access.py` (test matrix, CI me bhi).
+- Terminal: `login` / `logout` command. Tests 112 se 123.
+
 ## 0.9.0 (pehle registration; Fake HIS ka slot_id / request_id contract)
 - **Pehle registration, phir appointment:** `request_booking` naam + phone se registered patient dhoondhta hai
   (chhote-bade akshar aur space ka farq nahin). Na mile to `not_registered` aur agent registration desk ko bhejta

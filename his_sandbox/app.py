@@ -137,10 +137,20 @@ def create_app(db_path: str | None = None) -> FastAPI:
             raise HTTPException(404, "not_found")
         return as_json(row)
 
-    @app.get("/v1/bookings/{booking_ref}", tags=["scheduler"])
-    def get_booking(booking_ref: str):
+    @app.get("/v1/patients/{patient_ref}/bookings", tags=["patient records"])
+    def list_for_patient(patient_ref: str):
+        """Sirf is patient ki bookings."""
         with connect() as conn:
-            row = conn.execute("SELECT * FROM bookings WHERE booking_ref = ?", (booking_ref,)).fetchone()
+            rows = conn.execute("SELECT * FROM bookings WHERE patient_ref = ? ORDER BY date, time",
+                                (patient_ref,)).fetchall()
+        return {"patient_ref": patient_ref, "bookings": [as_json(r) for r in rows]}
+
+    @app.get("/v1/patients/{patient_ref}/bookings/{booking_ref}", tags=["patient records"])
+    def find_for_patient(patient_ref: str, booking_ref: str):
+        """Reference + maalik ek hi query me. Doosre patient ka reference ho to wahi 404 jo anjaan reference par."""
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM bookings WHERE booking_ref = ? AND patient_ref = ?",
+                               (booking_ref, patient_ref)).fetchone()
         if row is None:
             raise HTTPException(404, "not_found")
         return as_json(row)

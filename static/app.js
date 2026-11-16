@@ -10,6 +10,16 @@ const TEXT = {
     foot: "यह डॉक्टर नहीं है और बीमारी या दवा नहीं बताता।",
     chips: ["नया रजिस्ट्रेशन करना है", "कार्डियोलॉजी में अगले सोमवार का स्लॉट चाहिए", "OPD का समय क्या है?", "कौन-कौन से विभाग हैं?"],
     me: "आप", fail: "सर्वर से जुड़ नहीं पा रहा। इमरजेंसी में 112 पर कॉल करें।",
+    login: "लॉगिन", logout: "लॉगआउट", appts: "मेरी अपॉइंटमेंट", apptsChip: "मेरी अपॉइंटमेंट दिखाइए",
+    loginTitle: "मरीज़ लॉगिन", pid: "मरीज़ ID", phone: "रजिस्टर्ड मोबाइल नंबर", code: "6 अंकों का कोड",
+    sendCode: "कोड भेजें", verify: "लॉगिन करें", cancel: "रद्द करें", close: "बंद करें", back: "← सूची",
+    demoCode: (c) => `डेमो: असली ऐप में यह कोड SMS से आता। आपका कोड: ${c}`,
+    loginFail: "मरीज़ ID, फ़ोन या कोड सही नहीं है।", noAppts: "आपकी कोई अपॉइंटमेंट नहीं है।",
+    newChatAfterLogin: "लॉगिन बदला है, इसलिए नई बातचीत शुरू की गई।",
+    afterLogin: "मैंने लॉगिन कर लिया है। वही स्लॉट बुक कर दीजिए।",
+    loginCard: "बुकिंग के लिए लॉगिन करें", loginCardNote: "यह स्लॉट याद रहेगा। लॉगिन के बाद कार्ड पर पक्का करें।",
+    loginOnly: "आगे बढ़ने के लिए लॉगिन करें", loginOnlyNote: "आपकी अपॉइंटमेंट सिर्फ़ आपके लॉगिन से दिखती हैं।",
+    statusWord: { confirmed: "पक्का", cancelled: "रद्द" },
   },
   English: {
     sub: "AI Help Desk",
@@ -20,12 +30,22 @@ const TEXT = {
     foot: "This is not a doctor and does not diagnose or suggest medicines.",
     chips: ["I want to register as a new patient", "I need a cardiology slot next Monday", "What are the OPD timings?", "Which departments are there?"],
     me: "You", fail: "Cannot reach the server. In an emergency, call 112.",
+    login: "Log in", logout: "Log out", appts: "My appointments", apptsChip: "Show my appointments",
+    loginTitle: "Patient login", pid: "Patient ID", phone: "Registered mobile number", code: "6-digit code",
+    sendCode: "Send code", verify: "Log in", cancel: "Cancel", close: "Close", back: "← List",
+    demoCode: (c) => `Demo: a real app would send this code by SMS. Your code: ${c}`,
+    loginFail: "Patient ID, phone or code is not right.", noAppts: "You have no appointments.",
+    newChatAfterLogin: "The login changed, so a new chat was started.",
+    afterLogin: "I have logged in. Please book the same slot.",
+    loginCard: "Log in to book this slot", loginCardNote: "This slot is kept. After login, confirm it on the card.",
+    loginOnly: "Log in to continue", loginOnlyNote: "Your appointments are shown only after you log in.",
+    statusWord: { confirmed: "Confirmed", cancelled: "Cancelled" },
   },
 };
 
 const $ = (id) => document.getElementById(id);
 let HOSPITAL = null;  // config se: hospital ka naam aur disclaimer
-const state = { language: null, sessionId: null, busy: false, userId: getUserId() };
+const state = { language: null, sessionId: null, busy: false, userId: getUserId(), patient: null, afterLogin: null };
 
 function getUserId() {
   // Har browser ki ek pehchaan, taaki patient ki baat-cheet alag rahe.
@@ -90,8 +110,9 @@ function applyLanguage(lang) {
   $("newBtn").textContent = t.new;
   $("langBtn").textContent = t.lang;
   $("input").placeholder = t.placeholder;
+  renderAuth();
   $("chips").innerHTML = "";
-  for (const c of t.chips) {
+  for (const c of (state.patient ? [t.apptsChip, ...t.chips.slice(1)] : t.chips)) {
     const b = document.createElement("button");
     b.className = "chip"; b.type = "button"; b.textContent = c;
     b.onclick = () => send(c);
@@ -133,6 +154,11 @@ async function send(text) {
       body: JSON.stringify({ user_id: state.userId, session_id: state.sessionId, message: text }) });
     const data = await r.json();
     typing.remove();
+    if (r.status === 403) {          // yeh baat-cheet kisi aur login ki thi: nayi shuru
+      await start(state.language);
+      addMessage("bot", TEXT[state.language].newChatAfterLogin, "", "error");
+      return;
+    }
     if (!r.ok) throw new Error(data.detail || r.status);
     for (const m of data.replies) addMessage("bot", m.text, m.desk, m.kind);
     for (const c of data.cards || []) addCard(c);
@@ -149,6 +175,115 @@ function autoGrow() {
   el.style.height = "auto";
   el.style.height = Math.min(el.scrollHeight, 140) + "px";
 }
+
+// ---------- Login, logout aur My Appointments ----------
+// Kaun login hai, yeh server cookie (HttpOnly) se tay karta hai. Browser sirf /api/me se poochhta hai.
+
+function renderAuth() {
+  const t = TEXT[state.language || "English"];
+  $("loginBtn").textContent = state.patient ? t.logout : t.login;
+  $("apptsBtn").textContent = t.appts;
+  $("apptsBtn").hidden = !state.patient;
+  $("who").hidden = !state.patient;
+  $("who").textContent = state.patient ? state.patient.name : "";
+}
+
+async function refreshMe() {
+  try {
+    const r = await fetch("/api/me");
+    state.patient = r.ok ? await r.json() : null;
+  } catch (e) { state.patient = null; }
+  renderAuth();
+}
+
+function openLogin(afterLogin) {
+  const t = TEXT[state.language || "English"];
+  state.afterLogin = afterLogin || null;
+  $("loginTitle").textContent = t.loginTitle; $("pidLabel").textContent = t.pid;
+  $("phoneLabel").textContent = t.phone; $("codeLabel").textContent = t.code;
+  $("loginCancel").textContent = t.cancel; $("loginNext").textContent = t.sendCode;
+  $("codeBox").hidden = true; $("loginError").textContent = ""; $("lcode").value = "";
+  $("loginDlg").showModal();
+  $("pid").focus();
+}
+
+async function loginNext() {
+  const t = TEXT[state.language || "English"];
+  const body = { patient_id: $("pid").value.trim().toUpperCase(), phone: $("lphone").value.trim() };
+  $("loginError").textContent = "";
+  try {
+    if ($("codeBox").hidden) {                       // kadam 1: code maango
+      const r = await fetch("/api/login/start", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body) });
+      if (!r.ok) throw new Error();
+      $("demoCode").textContent = t.demoCode((await r.json()).demo_code);
+      $("codeBox").hidden = false; $("loginNext").textContent = t.verify; $("lcode").focus();
+      return;
+    }
+    const r = await fetch("/api/login/verify", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ patient_id: body.patient_id, code: $("lcode").value.trim() }) });
+    if (!r.ok) throw new Error();
+    state.patient = await r.json();
+    $("loginDlg").close();
+    $("lphone").value = ""; $("lcode").value = "";
+    applyLanguage(state.language || "English");
+    const next = state.afterLogin; state.afterLogin = null;
+    if (next) next();
+  } catch (e) {
+    $("loginError").textContent = t.loginFail;
+  }
+}
+
+async function logout() {
+  await fetch("/api/logout", { method: "POST" }).catch(() => {});
+  state.patient = null;
+  if ($("apptsDlg").open) $("apptsDlg").close();
+  $("apptsBody").innerHTML = "";                     // private details screen se hatao
+  if (state.language) await start(state.language);  // purani baat-cheet bhi screen se hat jaati hai
+  else renderAuth();
+}
+
+async function openAppointments() {
+  const t = TEXT[state.language || "English"];
+  $("apptsTitle").textContent = t.appts; $("apptsClose").textContent = t.close;
+  $("apptsBody").innerHTML = "";
+  $("apptsDlg").showModal();
+  const r = await fetch("/api/me/appointments");
+  if (r.status === 401) { $("apptsDlg").close(); await refreshMe(); return openLogin(); }
+  const list = (await r.json()).appointments || [];
+  if (!list.length) { $("apptsBody").textContent = t.noAppts; return; }
+  const ul = document.createElement("div");
+  ul.className = "appt-list";
+  for (const a of list) {
+    const b = document.createElement("button");
+    b.className = "appt-item";
+    b.innerHTML = `<b>${escapeHtml(a.appointment_id)}</b><span>${escapeHtml(a.department)} · ${escapeHtml(fmtDate(a.date))} · ${escapeHtml(fmtTime(a.time))}</span><em class="${a.status}">${escapeHtml(t.statusWord[a.status] || a.status)}</em>`;
+    b.onclick = () => openAppointment(a.appointment_id);
+    ul.appendChild(b);
+  }
+  $("apptsBody").appendChild(ul);
+}
+
+async function openAppointment(ref) {
+  const t = TEXT[state.language || "English"], ct = CARD_TEXT[state.language || "English"];
+  const r = await fetch(`/api/me/appointments/${encodeURIComponent(ref)}`);
+  if (!r.ok) { $("apptsBody").textContent = r.status === 401 ? t.loginFail : "Appointment not found"; return; }
+  const a = await r.json();
+  const rows = [[ct.appointment, a.appointment_id], [ct.department, a.department], ["📍", a.location],
+                [ct.date, fmtDate(a.date)], [ct.time, fmtTime(a.time)], [ct.status, t.statusWord[a.status] || a.status]];
+  $("apptsBody").innerHTML = `<table class="appt-detail">${rows.map(([k, v]) =>
+    `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(String(v))}</td></tr>`).join("")}</table>
+    <button type="button" class="ghost" id="apptBack">${escapeHtml(t.back)}</button>`;
+  $("apptBack").onclick = openAppointments;
+}
+
+$("loginBtn").onclick = () => (state.patient ? logout() : openLogin());
+$("loginNext").onclick = loginNext;
+$("loginCancel").onclick = () => $("loginDlg").close();
+$("lcode").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loginNext(); } });
+$("apptsBtn").onclick = openAppointments;
+$("apptsClose").onclick = () => $("apptsDlg").close();
+refreshMe();
 
 fetch("/api/info").then((r) => r.json()).then((h) => {
   HOSPITAL = h;
@@ -215,13 +350,34 @@ function cardRows(c, t) {
   } else {
     rows.push([t.hospital, HOSPITAL ? HOSPITAL.hospital_name : ""]);
     if (c.kind === "cancel") rows.push([t.appointment, s.appointment_id]);
-    else rows.push([t.department, s.department], [t.name, s.patient_name], [t.patient, s.patient_id], [t.phone, s.phone]);
+    else rows.push([t.department, s.department], [t.name, s.patient_name], [t.phone, s.phone]);
     rows.push([t.date, s.date ? fmtDate(s.date) : ""], [t.time, s.time ? fmtTime(s.time) : ""]);
   }
   return rows;
 }
 
+function addLoginCard(c) {
+  // Bina login booking ki koshish: chuna hua slot dikhao aur Login button. Login ke baad wahi slot dobara maango.
+  const t = TEXT[state.language], ct = CARD_TEXT[state.language], s = c.summary || {};
+  const row = document.createElement("div");
+  row.className = "row bot";
+  row.innerHTML = '<img src="/static/logo.svg" class="avatar" alt="">';
+  const card = document.createElement("div");
+  card.className = "card-confirm";
+  const rows = s.time ? [[ct.department, s.department], [ct.date, fmtDate(s.date)], [ct.time, fmtTime(s.time)]] : [];
+  card.innerHTML = `<div class="card-title">${escapeHtml(s.time ? t.loginCard : t.loginOnly)}</div>
+    <table>${rows.map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(String(v))}</td></tr>`).join("")}</table>
+    <div class="card-note">${escapeHtml(s.time ? t.loginCardNote : t.loginOnlyNote)}</div>
+    <div class="card-actions"><button class="btn-confirm">${escapeHtml(t.login)}</button></div>`;
+  card.querySelector("button").onclick = () => openLogin(() => { card.querySelector(".card-actions")?.remove();
+    if (s.time) send(t.afterLogin); });
+  row.appendChild(card);
+  $("log").appendChild(row);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
 function addCard(c) {
+  if (c.kind === "login") return addLoginCard(c);
   const t = CARD_TEXT[state.language];
   const row = document.createElement("div");
   row.className = "row bot";

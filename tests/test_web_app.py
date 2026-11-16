@@ -31,6 +31,14 @@ def _client():
     return TestClient(create_app(runner=runner, session_service=service))
 
 
+def login(client, patient_id, phone):
+    """Demo login: Patient ID + phone -> code (demo me jawab me) -> HttpOnly cookie client me."""
+    code = client.post("/api/login/start", json={"patient_id": patient_id, "phone": phone}).json()["demo_code"]
+    r = client.post("/api/login/verify", json={"patient_id": patient_id, "code": code})
+    assert r.status_code == 200
+    return r
+
+
 def _start(client, language):
     r = client.post("/api/start", json={"language": language, "user_id": USER})
     assert r.status_code == 200
@@ -83,8 +91,7 @@ class ScriptedBooking(BaseLlm):
     async def generate_content_async(self, llm_request, stream=False):
         self.calls += 1
         if self.calls == 1:
-            args = {"patient_name": "Asha Verma", "phone": "9876543210", "department_id": "cardiology",
-                    "date": "2026-11-16", "time": "09:00"}
+            args = {"department_id": "cardiology", "date": "2026-11-16", "time": "09:00"}
             part = types.Part(function_call=types.FunctionCall(name="request_booking", args=args))
         else:
             part = types.Part(text="Card dekh kar Confirm dabayein.")
@@ -95,12 +102,14 @@ def _booking_client():
     from conftest import register_patient
 
     from hospital_agent.tools import FEATURE_TOOLS
-    register_patient("Asha Verma", "9876543210")
+    register_patient("Asha Verma", "9876543210", patient_id="DEMO-ASHA")
     service = InMemorySessionService()
     agent = Agent(name="appointment_desk", model=ScriptedBooking(), instruction="x",
                   tools=FEATURE_TOOLS["appointments"])
     runner = Runner(agent=agent, app_name="hospital_agent", session_service=service)
-    return TestClient(create_app(runner=runner, session_service=service))
+    client = TestClient(create_app(runner=runner, session_service=service))
+    login(client, "DEMO-ASHA", "9876543210")
+    return client
 
 
 def test_chat_returns_a_confirm_card_and_the_button_books():

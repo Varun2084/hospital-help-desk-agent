@@ -49,9 +49,13 @@ class LocalHIS:
             row = db.find_appointment_by_key(conn, request_id)
         return _booking(row) if row else None
 
-    def get_booking(self, reference: str) -> Booking | None:
+    def list_for_patient(self, patient_ref: str) -> list[Booking]:
         with db.connect() as conn:
-            row = db.get_appointment(conn, reference)
+            return [_booking(row) for row in db.list_appointments_for_patient(conn, patient_ref)]
+
+    def find_for_patient(self, patient_ref: str, reference: str) -> Booking | None:
+        with db.connect() as conn:
+            row = db.find_appointment_for_patient(conn, patient_ref, reference)
         return _booking(row) if row else None
 
     def cancel(self, reference: str, patient_ref: str) -> Booking:

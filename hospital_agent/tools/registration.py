@@ -85,7 +85,8 @@ def complete_registration(conn, action_id: str, p: dict, moment: datetime) -> di
     patient_id = db.new_patient_id()
     outcome = {"status": "registered", "patient_id": patient_id, "full_name": p["full_name"],
                "phone": mask_phone(p["phone"]),
-               "next_step": "Yeh patient ID likh lein. Ab appointment book ho sakti hai: wahi naam aur phone batayein.",
+               "next_step": "Yeh patient ID likh lein. Appointment ke liye upar 'Login' dabayein: "
+                            "yahi Patient ID aur phone.",
                "note": "DEMO ID: asli hospital me registration counter ya HIS ki ID hi maanya hogi."}
     try:
         db.commit_registration(conn, action_id, patient_id, p, outcome)

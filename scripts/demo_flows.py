@@ -50,10 +50,12 @@ PATIENTS = [  # synthetic: interview recording me asli naam ya number nahin
 DEPT = "cardiology"
 
 
-def ctx(user: str, turn: str, text: str):
-    """ADK ke ToolContext jaisa: kaun patient, kaun si baat-cheet, kaun sa turn, kya kaha."""
+def ctx(user: str, turn: str, text: str, patient: str | None = None):
+    """ADK ke ToolContext jaisa: kaun browser, kaun si baat-cheet, kaun sa turn, kya kaha, aur login kiya
+    patient (web app yahi 'temp:patient_ref' har turn me login cookie se bharta hai)."""
     return SimpleNamespace(user_id=user, session=SimpleNamespace(id="s-" + user), invocation_id=turn,
-                           user_content=types.Content(role="user", parts=[types.Part(text=text)]))
+                           user_content=types.Content(role="user", parts=[types.Part(text=text)]),
+                           state={"temp:patient_ref": patient} if patient else {})
 
 
 def next_opd_day() -> str:
@@ -76,10 +78,14 @@ def register(user, name, phone) -> str:
     return confirm_pending(pending["action_id"], user, "s-" + user, pending["fingerprint"])["patient_id"]
 
 
+LOGGED_IN = {}   # browser -> login kiya patient ID (demo me seedha; web app me cookie se)
+
+
 def book(user, name, phone, date, slot):
     """Model ki arzi (request_booking), aur ek function jo patient ka Confirm button dabata hai."""
-    pending = request_booking(name, phone, DEPT, date, slot, ctx(user, "turn-1", f"{slot} book karo"))
-    return pending, (lambda: confirm_pending(pending["action_id"], user, "s-" + user, pending["fingerprint"]))
+    patient = LOGGED_IN[user]
+    pending = request_booking(DEPT, date, slot, ctx(user, "turn-1", f"{slot} book karo", patient))
+    return pending, (lambda: confirm_pending(pending["action_id"], user, "s-" + user, pending["fingerprint"], patient))
 
 
 def his_rows(sandbox, pending):
@@ -97,7 +103,9 @@ def main() -> None:
         print(f"Fake HIS: {sandbox.url}   department: {DEPT}   date: {date}   free: {slots[:4]} ...\n")
 
         print("FLOW 0: pehle registration (synthetic patients)")
-        print("  " + "   ".join(f"{name} -> {register(user, name, phone)}" for user, name, phone in PATIENTS) + "\n")
+        for user, name, phone in PATIENTS:
+            LOGGED_IN[user] = register(user, name, phone)
+        print("  " + "   ".join(f"{name} -> {LOGGED_IN[user]}" for user, name, phone in PATIENTS) + "\n")
 
         print("FLOW 1: normal booking")
         pending, confirm = book("patient_A", "Demo Patient A", "9000000001", date, slots[0])

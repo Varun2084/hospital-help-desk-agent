@@ -2,7 +2,7 @@
 
 Arzi yahan banti hai; use patient ka Confirm button (tools/actions.py) pakka karta hai.
 Slot aur booking HIS (hospital ka system) ke paas hain: yeh file sirf hospital_agent.his ke contract se baat karti hai.
-Booking sirf registered patient ki hoti hai (patient_ref = DEMO patient ID).
+Booking sirf login kiye hue patient ki hoti hai: patient_ref login session se aata hai, chat se nahin.
 """
 
 import re
@@ -16,7 +16,7 @@ from hospital_agent import db, his
 from hospital_agent.config import feature_required, get_department
 from hospital_agent.safety import mask_phone
 from hospital_agent.tools import common
-from hospital_agent.tools.common import IST, PHONE_PATTERN, create_pending_action, error
+from hospital_agent.tools.common import IST, create_pending_action, error
 
 BOOKING_WINDOW_DAYS = 30
 HIS_DOWN = "Hospital ka system abhi jawab nahin de raha. Thodi der baad koshish karein ya reception se baat karein."
@@ -106,36 +106,33 @@ def check_available_slots(department_id: str, date: str) -> dict:
     return {"status": "ok", "department": dept.name, "date": day.isoformat(), "free_slots": free}
 
 
+LOGIN_NEEDED = ("Appointment patient ke apne account se hoti hai. Kripya upar 'Login' dabayein (Patient ID + "
+                "registered phone). Chuna hua slot yaad rahega. Registration nahin hai to pehle registration karein.")
+
+
+def _login_required(preview: dict | None = None) -> dict:
+    result = {"status": "login_required", "message": LOGIN_NEEDED}
+    if preview:
+        result["preview"] = preview
+    return result
+
+
 @feature_required("appointments")
-def request_booking(patient_name: str, phone: str, department_id: str, date: str, time: str,
-                    tool_context: ToolContext) -> dict:
-    """Prepares an OPD booking for a REGISTERED patient and returns a summary.
+def request_booking(department_id: str, date: str, time: str, tool_context: ToolContext) -> dict:
+    """Prepares an OPD booking for the LOGGED-IN patient and returns a summary.
+    The patient is taken from the login, never from the chat: do not ask for name or phone.
     Nothing is booked yet: the patient confirms it with a button in the app.
-    If the patient is not registered, it returns 'not_registered': registration comes first.
+    If nobody is logged in, it returns 'login_required' with a preview of the chosen slot.
 
     Args:
-        patient_name: The patient's full name, as registered.
-        phone: The 10-digit Indian mobile number given at registration.
         department_id: The department's id, for example 'cardiology'.
         date: The date in YYYY-MM-DD format.
         time: A free slot time from check_available_slots, for example '09:30'.
 
     Returns:
-        An action_id and the exact summary to confirm, 'not_registered', or an error.
+        An action_id and the exact summary to confirm, 'login_required', or an error.
     """
     moment = common.now()
-    name = " ".join(patient_name.split())
-    if not name:
-        return error("Patient ka naam chahiye.")
-    if not PHONE_PATTERN.fullmatch(phone):
-        return error("Phone 10 ankon ka Indian mobile number hona chahiye (6, 7, 8 ya 9 se shuru).")
-    with db.connect() as conn:
-        patient = db.find_patient(conn, phone, name)
-    if patient is None:
-        return {"status": "not_registered",
-                "message": "Is naam aur phone se registration nahin mila. Appointment se pehle registration "
-                           "zaroori hai: registration desk naam, umar, gender, phone aur shahar lekar patient ID "
-                           "dega. Registration ho chuka ho to wahi naam aur phone dein jo registration me diye the."}
     dept, day, problem = _check_department_and_date(department_id, date, moment)
     if problem:
         return problem
@@ -146,41 +143,70 @@ def request_booking(patient_name: str, phone: str, department_id: str, date: str
     if slot is None:
         return error(f"{time} ka slot khaali nahin hai (beet chuka, booked, ya schedule me nahin). "
                      "check_available_slots se khaali samay dekhein.")
+    patient = common.current_patient(tool_context)
+    if patient is None:   # slot sahi hai; login ke baad wahi slot dobara maanga ja sakta hai
+        return _login_required({"department": dept.name, "department_id": dept.id, "date": day.isoformat(),
+                                "weekday": day.strftime("%A"), "time": time})
     payload = {"slot_id": slot.slot_id, "patient_ref": patient["id"], "department_id": dept.id,
                "date": day.isoformat(), "time": time}
-    summary = {"action": "book", "patient_id": patient["id"], "patient_name": patient["full_name"],
-               "phone": mask_phone(phone), "department": dept.name,
-               "location": f"{dept.building}, floor {dept.floor}", "date": day.isoformat(),
-               "weekday": day.strftime("%A"), "time": time}
+    summary = {"action": "book", "patient_name": patient["full_name"], "phone": mask_phone(patient["phone"]),
+               "department": dept.name, "location": f"{dept.building}, floor {dept.floor}",
+               "date": day.isoformat(), "weekday": day.strftime("%A"), "time": time}
     return create_pending_action("book", payload, summary, tool_context)
 
 
 @feature_required("appointments")
-def request_cancellation(appointment_id: str, phone: str, tool_context: ToolContext) -> dict:
-    """Prepares the cancellation of an appointment and returns a summary to read back.
+def my_appointments(tool_context: ToolContext) -> dict:
+    """Lists the LOGGED-IN patient's own appointments (reference, department, date, time, status).
+    Works only with a login; a name, phone or ID typed in the chat is ignored.
+
+    Returns:
+        The patient's appointments, or 'login_required'.
+    """
+    patient = common.current_patient(tool_context)
+    if patient is None:
+        return _login_required()
+    try:
+        bookings = his.get_his().list_for_patient(patient["id"])
+    except his.HISError:
+        return error(HIS_DOWN)
+    return {"status": "ok", "appointments": [appointment_view(b) for b in bookings]}
+
+
+def appointment_view(booking: his.Booking) -> dict:
+    """Patient ko dikhane layak roop. Patient ID ya phone yahan nahin."""
+    dept = get_department(booking.department_id)
+    return {"appointment_id": booking.reference, "department": dept.name if dept else booking.department_id,
+            "location": f"{dept.building}, floor {dept.floor}" if dept else "", "date": booking.date,
+            "weekday": Date.fromisoformat(booking.date).strftime("%A"), "time": booking.time,
+            "status": booking.status}
+
+
+@feature_required("appointments")
+def request_cancellation(appointment_id: str, tool_context: ToolContext) -> dict:
+    """Prepares the cancellation of one of the LOGGED-IN patient's appointments and returns a summary.
     Nothing is cancelled yet: the patient confirms it with a button in the app.
 
     Args:
-        appointment_id: The booking reference given at booking, for example 'HIS-APT-001' or 'APT-1A2B3C'.
-        phone: The 10-digit mobile number of the registered patient.
+        appointment_id: The booking reference, for example 'HIS-APT-001' or 'APT-1A2B3C'.
 
     Returns:
-        An action_id and the exact summary to confirm, or an error.
+        An action_id and the exact summary to confirm, 'login_required', or an error.
     """
+    patient = common.current_patient(tool_context)
+    if patient is None:
+        return _login_required()
     apt_id = appointment_id.strip().upper()
     try:
-        booking = his.get_his().get_booking(apt_id)
+        booking = his.get_his().find_for_patient(patient["id"], apt_id)
     except his.HISError:
         return error(HIS_DOWN)
-    with db.connect() as conn:
-        patient = db.get_patient(conn, booking.patient_ref) if booking else None
-    if booking is None or patient is None or patient["phone"] != phone:
-        return error("Is ID aur phone number se koi appointment nahin mili.")
+    if booking is None:   # anjaan ya doosre patient ka reference: ek hi jawab
+        return error("Aapke account me is ID ki koi appointment nahin mili.")
     if booking.status != "confirmed":
         return error("Yeh appointment pehle hi cancel ho chuki hai.")
-    payload = {"appointment_id": apt_id, "patient_ref": booking.patient_ref}
-    summary = {"action": "cancel", "appointment_id": apt_id, "patient_id": booking.patient_ref,
-               "date": booking.date, "time": booking.time}
+    payload = {"appointment_id": apt_id, "patient_ref": patient["id"]}
+    summary = {"action": "cancel", "appointment_id": apt_id, "date": booking.date, "time": booking.time}
     return create_pending_action("cancel", payload, summary, tool_context)
 
 
