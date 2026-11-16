@@ -2,6 +2,22 @@
 
 Har badlaav yahan likhein: kya badla, kyun, aur kaun se tests jode.
 
+## 0.9.0 (pehle registration; Fake HIS ka slot_id / request_id contract)
+- **Pehle registration, phir appointment:** `request_booking` naam + phone se registered patient dhoondhta hai
+  (chhote-bade akshar aur space ka farq nahin). Na mile to `not_registered` aur agent registration desk ko bhejta
+  hai. Booking patient ID (`patient_ref`) par hoti hai, card par "Patient ID" dikhta hai. Bug fix (screenshot):
+  appointment ke baad registration maangne par naya registration ban jaata tha; ab wahi ID milti hai.
+- **Fake HIS (Lesson 3):** alag port par (`python -m his_sandbox`, Swagger `/docs`). Teen endpoints:
+  `GET /v1/slots` (har slot ka `slot_id`), `POST /v1/bookings` (`slot_id`, `patient_ref`, `request_id` ->
+  `HIS-APT-001` ya 409), `GET /v1/bookings/by-request/{request_id}`. Slot claim + insert ek transaction me,
+  `slot_id` par unique index (capacity 1). Slot ab HIS se aate hain; agent sirf "abhi ke baad" wali jaanch karta hai.
+- Adapter (`his/base.py`, `local.py`, `http.py`, naya `slots.py`) isi contract par. Arzi ki id hi `request_id`;
+  HIS ko bhejne se pehle `committing` me save.
+- **Card:** slot chhin jaane par naye khaali samay ke button; timeout par "Verifying booking status" aur
+  "Check status" button; recover hone par note. Chat bubble me likha phone number bhi masked.
+- `app.js?v=0.9.0`: browser purani JavaScript cache se na chalaye.
+- Demo flows synthetic patients se: pehle registration, phir teen flows. Tests 108 se 112.
+
 ## 0.8.0 (Confirm button aur HIS sandbox)
 - **Confirm button:** model ab kuch pakka nahin kar sakta (`confirm_action` tool hata). Model sirf arzi banata hai;
   web app exact details ka card dikhata hai (hospital, department, tareekh, samay, "Confirmation pending") aur

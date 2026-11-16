@@ -33,3 +33,14 @@ def make_ctx(text: str = "", turn: str = "turn-1", user: str = "patient_001", se
 @pytest.fixture
 def ctx():
     return make_ctx
+
+
+def register_patient(full_name: str = "Asha Verma", phone: str = "9876543210", age: int = 34,
+                     gender: str = "Female", city: str = "Rewa") -> str:
+    """Test ke liye seedha registered patient (booking sirf registered patient ki hoti hai). Patient ID lautata hai."""
+    patient_id = db.new_patient_id()
+    with db.connect() as conn, conn:
+        conn.execute("INSERT INTO patients (id, full_name, age, gender, phone, city, guardian_name, created_at) "
+                     "VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
+                     (patient_id, full_name, age, gender, phone, city, db.now_text()))
+    return patient_id

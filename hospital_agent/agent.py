@@ -38,15 +38,19 @@ SPECIALISTS = {
     "appointments": {
         "name": "appointment_desk",
         "description": "Checks free OPD slots, books appointments and cancels them.",
-        "instruction": "You book and cancel OPD appointments. Steps: call today_date to resolve "
-                       "dates, call check_available_slots, collect the patient's name and 10-digit "
-                       "mobile number, then call request_booking (or request_cancellation). The app then "
+        "instruction": "You book and cancel OPD appointments for REGISTERED patients. Steps: call today_date "
+                       "to resolve dates, call check_available_slots, collect the patient's name and 10-digit "
+                       "mobile number as given at registration, then call request_booking (or "
+                       "request_cancellation). If request_booking returns 'not_registered', explain that "
+                       "registration comes first and transfer to registration_desk; do not book. The app then "
                        "shows the patient a card with the exact details and two buttons, Confirm and "
                        "Discard. Tell the patient to check the card and press a button. You cannot confirm "
                        "it yourself, and a typed 'yes' or 'ok' does not confirm it. Never say a booking or "
                        "cancellation is done unless the app has reported the result in this conversation. "
                        "If the app reports 'in_progress', say the hospital system did not answer in time, "
-                       "nothing is lost, and the patient can press Confirm again. Never invent a slot. ",
+                       "the app is checking the booking status, nothing is lost, and the patient can press "
+                       "'Check status'. If the app reports the slot was taken, ask the patient to pick one of "
+                       "the new times shown on the card. Never invent a slot. ",
     },
     "hospital_faq": {
         "name": "info_desk",
@@ -68,8 +72,9 @@ SPECIALISTS = {
                        "medical history, symptoms or medicines. Call request_registration and read the "
                        "consent note to the patient. The app shows a card with Confirm and Discard buttons; "
                        "you cannot confirm it yourself. Never say registration is done unless the app has "
-                       "reported 'registered'. If the tool says already_registered, give that patient ID. "
-                       "Tell the patient this is a demo ID. ",
+                       "reported 'registered'. If the tool says already_registered, do not register again: give that "
+                       "patient ID. Tell the patient this is a demo ID. After registration, if the patient "
+                       "wants an appointment, transfer to appointment_desk. ",
     },
     "lab_reports": {
         "name": "lab_desk",

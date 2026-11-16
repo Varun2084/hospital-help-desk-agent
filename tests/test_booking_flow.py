@@ -3,7 +3,8 @@
 import threading
 from datetime import datetime, timedelta
 
-from conftest import FIXED_NOW, IST, make_ctx
+import pytest
+from conftest import FIXED_NOW, IST, make_ctx, register_patient
 
 from hospital_agent import db
 from hospital_agent.tools import FEATURE_TOOLS, common
@@ -13,9 +14,16 @@ from hospital_agent.tools.appointments import (
     request_booking,
     request_cancellation,
 )
+from hospital_agent.tools.registration import request_registration
 
 MONDAY = "2026-11-16"
 PHONE = "9876543210"
+
+
+@pytest.fixture(autouse=True)
+def registered_patients():
+    """Booking sirf registered patient ki: do synthetic patient pehle se registered."""
+    return {"asha": register_patient("Asha Verma", PHONE), "ravi": register_patient("Ravi Kumar", "9123456789")}
 
 
 def _request(time="09:00", name="Asha Verma", phone=PHONE, **who):
@@ -112,7 +120,8 @@ def test_compact_date_cannot_bypass_a_booked_slot():
     """Review me mila: '20261116' likhne par booked slot khaali dikhta tha aur dobara book ho jaata tha."""
     _book()
     assert check_available_slots("cardiology", "20261116")["status"] == "error"
-    assert request_booking("Ravi", "9123456789", "cardiology", "20261116", "09:00", make_ctx())["status"] == "error"
+    compact = request_booking("Ravi Kumar", "9123456789", "cardiology", "20261116", "09:00", make_ctx())
+    assert compact["status"] == "error"
     assert _count() == 1
 
 
@@ -149,10 +158,40 @@ def test_two_patients_one_slot_only_one_wins():
         t.join()
     assert sorted(r["status"] for r in results) == ["booked", "error"]
     assert _count() == 1
+    loser = next(r for r in results if r["status"] == "error")
+    assert loser["free_slots"] and "09:00" not in loser["free_slots"]   # card par naye samay
+
+
+def test_unregistered_patient_cannot_book():
+    """Pehle registration, phir appointment: bina registration ke arzi bhi nahin banti."""
+    result = _request(name="Naya Patient", phone="9988776655")
+    assert result["status"] == "not_registered" and "registration" in result["message"]
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM pending_actions").fetchone()[0] == 0
+
+
+def test_booking_uses_the_registered_patient_id(registered_patients):
+    pending = _request(name="  asha   VERMA ")          # naam me chhote-bade akshar aur space ka farq nahin
+    assert pending["summary"]["patient_id"] == registered_patients["asha"]
+    assert pending["summary"]["patient_name"] == "Asha Verma"
+    done = _confirm(pending)
+    assert done["patient_id"] == registered_patients["asha"]
+    with db.connect() as conn:
+        row = conn.execute("SELECT patient_ref, slot_id FROM appointments").fetchone()
+    assert tuple(row) == (registered_patients["asha"], "SLOT-cardiology-20261116-0900")
+
+
+def test_registration_after_booking_is_not_repeated(registered_patients):
+    """Screenshot me mila: appointment ke baad bhi naya registration ban gaya tha."""
+    assert _book()["status"] == "booked"
+    again = request_registration("asha verma", 34, "female", PHONE, "Rewa", make_ctx("register", turn="turn-9"))
+    assert again["status"] == "already_registered" and again["patient_id"] == registered_patients["asha"]
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM patients WHERE phone = ?", (PHONE,)).fetchone()[0] == 1
 
 
 def test_closed_department_cannot_be_booked():
-    assert request_booking("Asha", PHONE, "dental", MONDAY, "09:00", make_ctx())["status"] == "error"
+    assert request_booking("Asha Verma", PHONE, "dental", MONDAY, "09:00", make_ctx())["status"] == "error"
 
 
 def test_invalid_phone_is_rejected():

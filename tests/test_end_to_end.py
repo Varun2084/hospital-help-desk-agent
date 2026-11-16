@@ -8,6 +8,7 @@ aur Confirm button ka nateeja agle turn me model tak pahunchta hai.
 import logging
 
 import pytest
+from conftest import register_patient
 from google.adk.agents import Agent
 from google.adk.models import BaseLlm, LlmResponse
 from google.adk.runners import InMemoryRunner
@@ -89,6 +90,7 @@ async def _runner(steps):
 
 
 async def test_full_booking_through_real_runner(caplog):
+    register_patient("Asha Verma", "9876543210")
     seen = []
     runner, session = await _runner([
         _call("request_booking", **BOOK_ARGS),
@@ -110,6 +112,7 @@ async def test_full_booking_through_real_runner(caplog):
 @pytest.mark.parametrize("typed", ["ok", "haan", "yes, confirm it"])
 async def test_typing_yes_in_chat_books_nothing(typed):
     """Patient ka 'ok' summary padhne ka ishaara bhi ho sakta hai. Chat me kuch bhi likhne se booking nahin hoti."""
+    register_patient("Asha Verma", "9876543210")
     runner, session = await _runner([
         _call("request_booking", **BOOK_ARGS),
         types.Part(text="Card dekhiye."),
@@ -120,6 +123,16 @@ async def test_typing_yes_in_chat_books_nothing(typed):
     assert _booked() == 0
     with db.connect() as conn:
         assert db.get_pending(conn, cards[0]["action_id"])["status"] == "pending"
+
+
+async def test_unregistered_patient_gets_no_card():
+    """Pehle registration: bina registration ke model ki arzi bhi nahin banti, card nahin aata."""
+    runner, session = await _runner([
+        _call("request_booking", **BOOK_ARGS),
+        types.Part(text="Pehle registration karna hoga."),
+    ])
+    results, cards = await _say(runner, session, "Cardiology 16 Nov 09:00")
+    assert results[0]["status"] == "not_registered" and cards == [] and _booked() == 0
 
 
 async def test_registration_through_real_runner():

@@ -1,11 +1,27 @@
 """HttpHIS: HIS ka contract, HTTP API par (sandbox ya asli vendor).
 
+Sandbox ka contract (asli vendor ke naam aur fields uski API documentation se milane honge):
+    GET  /v1/slots?department_id=&date=          khaali slot, har ek ka slot_id
+    POST /v1/bookings  {slot_id, patient_ref, request_id}
+                                                 201 confirmed + booking_ref, ya 409 slot_unavailable
+    GET  /v1/bookings/by-request/{request_id}    is attempt ki booking, agar HIS me bani ho
+    GET  /v1/bookings/{booking_ref}
+    POST /v1/bookings/{booking_ref}/cancel  {patient_ref}
+
 Timeout aur network error yahan pehchaane jaate hain.
 """
 
 import httpx
 
-from hospital_agent.his.base import Booking, BookingNotFound, HISError, HISTimeout, HISUnavailable, SlotTaken
+from hospital_agent.his.base import (
+    Booking,
+    BookingNotFound,
+    HISError,
+    HISTimeout,
+    HISUnavailable,
+    Slot,
+    SlotTaken,
+)
 
 
 class HttpHIS:
@@ -22,30 +38,31 @@ class HttpHIS:
 
     @staticmethod
     def _booking(data: dict) -> Booking:
-        return Booking(**{k: data[k] for k in Booking.__dataclass_fields__})
+        return Booking(reference=data["booking_ref"], slot_id=data["slot_id"], patient_ref=data["patient_ref"],
+                       department_id=data["department_id"], date=data["date"], time=data["time"],
+                       status=data["status"])
 
-    def booked_times(self, department_id: str, date: str) -> set[str]:
-        r = self._call("GET", "/v1/slots/booked", params={"department_id": department_id, "date": date})
+    def open_slots(self, department_id: str, date: str) -> list[Slot]:
+        r = self._call("GET", "/v1/slots", params={"department_id": department_id, "date": date})
         if r.status_code != 200:
             raise HISError(f"slots: HTTP {r.status_code}")
-        return set(r.json()["booked_times"])
+        return [Slot(s["slot_id"], s["time"]) for s in r.json()["slots"]]
 
-    def book(self, key, patient_name, phone, department_id, date, time) -> Booking:
-        body = {"patient_name": patient_name, "phone": phone, "department_id": department_id,
-                "date": date, "time": time}
-        r = self._call("POST", "/v1/bookings", json=body, headers={"Idempotency-Key": key})
+    def book(self, request_id: str, slot_id: str, patient_ref: str) -> Booking:
+        body = {"slot_id": slot_id, "patient_ref": patient_ref, "request_id": request_id}
+        r = self._call("POST", "/v1/bookings", json=body)
         if r.status_code in (200, 201):
             return self._booking(r.json())
         if r.status_code == 409:
-            raise SlotTaken(f"{department_id} {date} {time}")
+            raise SlotTaken(slot_id)
         raise HISError(f"book: HTTP {r.status_code} {r.text[:200]}")
 
-    def find_by_key(self, key: str) -> Booking | None:
-        r = self._call("GET", f"/v1/bookings/by-key/{key}")
+    def find_by_request(self, request_id: str) -> Booking | None:
+        r = self._call("GET", f"/v1/bookings/by-request/{request_id}")
         if r.status_code == 404:
             return None
         if r.status_code != 200:
-            raise HISError(f"find_by_key: HTTP {r.status_code}")
+            raise HISError(f"find_by_request: HTTP {r.status_code}")
         return self._booking(r.json())
 
     def get_booking(self, reference: str) -> Booking | None:
@@ -56,8 +73,8 @@ class HttpHIS:
             raise HISError(f"get_booking: HTTP {r.status_code}")
         return self._booking(r.json())
 
-    def cancel(self, reference: str, phone: str) -> Booking:
-        r = self._call("POST", f"/v1/bookings/{reference}/cancel", json={"phone": phone})
+    def cancel(self, reference: str, patient_ref: str) -> Booking:
+        r = self._call("POST", f"/v1/bookings/{reference}/cancel", json={"patient_ref": patient_ref})
         if r.status_code == 404:
             raise BookingNotFound(reference)
         if r.status_code != 200:

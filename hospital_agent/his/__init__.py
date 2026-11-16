@@ -14,6 +14,7 @@ from hospital_agent.his.base import (  # noqa: F401
     HISError,
     HISTimeout,
     HISUnavailable,
+    Slot,
     SlotTaken,
 )
 from hospital_agent.his.http import HttpHIS

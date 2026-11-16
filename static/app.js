@@ -62,7 +62,7 @@ function addMessage(who, text, desk = "", kind = "agent") {
   row.className = "row " + (who === "me" ? "me" : "bot");
   const bubble = document.createElement("div");
   bubble.className = "bubble " + kind;
-  if (who === "me") bubble.textContent = text;
+  if (who === "me") bubble.textContent = maskPhones(text);   // apne bubble me bhi poora number nahin
   else bubble.innerHTML = (desk ? `<div class="desk">${escapeHtml(desk)}</div>` : "") + renderMarkdown(text);
   if (who !== "me") {
     const av = document.createElement("img");
@@ -117,6 +117,10 @@ async function start(lang) {
   $("input").focus();
 }
 
+function maskPhones(text) {   // 9876543210 -> 98XXXXXX10 (server ko poora number jaata hai, screen par nahin)
+  return text.replace(/(^|\D)([6-9]\d)\d{6}(\d{2})(?!\d)/g, "$1$2XXXXXX$3");
+}
+
 async function send(text) {
   text = text.trim();
   if (!text || state.busy || !state.sessionId) return;
@@ -169,20 +173,24 @@ const CARD_TEXT = {
     title: { book: "अपॉइंटमेंट की पुष्टि करें", cancel: "अपॉइंटमेंट रद्द करने की पुष्टि करें", register: "रजिस्ट्रेशन की पुष्टि करें" },
     hospital: "अस्पताल", department: "विभाग", date: "तारीख़", time: "समय", status: "स्थिति", name: "नाम",
     age: "उम्र", gender: "लिंग", phone: "फ़ोन", city: "शहर / गाँव", guardian: "अभिभावक", appointment: "अपॉइंटमेंट ID",
+    recovered: "पिछली कोशिश में जवाब नहीं आया था; अस्पताल के सिस्टम में वही बुकिंग मिली, नई नहीं बनी।",
+    patient: "मरीज़ ID", pick: "यह समय अब खाली नहीं। नया समय चुनें:", slotMsg: (time) => `मुझे ${time} का स्लॉट चाहिए`,
     pending: "पुष्टि बाकी", confirm: { book: "अपॉइंटमेंट पक्का करें", cancel: "रद्द करना पक्का करें", register: "रजिस्ट्रेशन पक्का करें" },
-    discard: "अनुरोध हटाएँ", retry: "फिर से पक्का करें", booked: "पक्का हो गया", cancelled: "रद्द हो गया",
+    discard: "अनुरोध हटाएँ", retry: "स्थिति जाँचें", booked: "पक्का हो गया", cancelled: "रद्द हो गया",
     registered: "रजिस्ट्रेशन हो गया", discarded: "अनुरोध हटा दिया गया", already_registered: "पहले से रजिस्टर्ड",
-    in_progress: "अस्पताल के सिस्टम से जवाब नहीं आया। कुछ भी खोया नहीं; फिर से दबाएँ, दूसरी बुकिंग नहीं बनेगी।",
+    in_progress: "बुकिंग की स्थिति जाँची जा रही है। अस्पताल के सिस्टम से जवाब समय पर नहीं आया; दूसरी बुकिंग नहीं बनेगी।",
     note: "बटन दबाने से पहले विवरण जाँच लें। चैट में 'हाँ' लिखने से पुष्टि नहीं होती।",
   },
   English: {
     title: { book: "Confirm your appointment", cancel: "Confirm cancellation", register: "Confirm registration" },
     hospital: "Hospital", department: "Department", date: "Date", time: "Time", status: "Status", name: "Name",
     age: "Age", gender: "Gender", phone: "Phone", city: "Town / village", guardian: "Guardian", appointment: "Appointment ID",
+    recovered: "The last attempt got no answer; the hospital system had the same booking, so no new one was made.",
+    patient: "Patient ID", pick: "That time is no longer free. Pick a new time:", slotMsg: (time) => `I want the ${time} slot`,
     pending: "Confirmation pending", confirm: { book: "Confirm appointment", cancel: "Confirm cancellation", register: "Confirm registration" },
-    discard: "Discard request", retry: "Try again", booked: "Confirmed", cancelled: "Cancelled",
+    discard: "Discard request", retry: "Check status", booked: "Confirmed", cancelled: "Cancelled",
     registered: "Registered", discarded: "Request discarded", already_registered: "Already registered",
-    in_progress: "The hospital system did not answer. Nothing is lost; press again and no second booking is made.",
+    in_progress: "Verifying booking status. The hospital system did not answer in time; no second booking will be made.",
     note: "Check the details before you press a button. Typing 'yes' in the chat does not confirm.",
   },
 };
@@ -207,7 +215,7 @@ function cardRows(c, t) {
   } else {
     rows.push([t.hospital, HOSPITAL ? HOSPITAL.hospital_name : ""]);
     if (c.kind === "cancel") rows.push([t.appointment, s.appointment_id]);
-    else rows.push([t.department, s.department], [t.name, s.patient_name], [t.phone, s.phone]);
+    else rows.push([t.department, s.department], [t.name, s.patient_name], [t.patient, s.patient_id], [t.phone, s.phone]);
     rows.push([t.date, s.date ? fmtDate(s.date) : ""], [t.time, s.time ? fmtTime(s.time) : ""]);
   }
   return rows;
@@ -246,10 +254,11 @@ async function act(c, card, which) {
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || r.status);
     const res = data.result;
-    if (res.status === "in_progress") {           // HIS ka jawab nahin aaya: dobara dabane do
+    if (res.status === "in_progress") {           // HIS ka jawab nahin aaya: usi request_id se status jaanchein
       status.className = "card-status warn"; status.textContent = t.in_progress;
       const confirmBtn = card.querySelector(".btn-confirm");
       confirmBtn.textContent = t.retry; confirmBtn.disabled = false;
+      card.querySelector(".btn-discard")?.remove();  // arzi HIS ko ja chuki; ab hatayi nahin ja sakti
       return;
     }
     const ok = ["booked", "cancelled", "registered", "already_registered", "discarded"].includes(res.status);
@@ -257,6 +266,21 @@ async function act(c, card, which) {
     status.className = "card-status " + (ok ? (res.status === "discarded" ? "muted" : "ok") : "bad");
     status.textContent = ok ? `${t[res.status]}${ref ? " · " + ref : ""}` : (res.message || "Error");
     card.querySelector(".card-actions").remove();
+    if (res.note && res.status === "booked") card.querySelector(".card-note").textContent = t.recovered;
+    if (res.free_slots && res.free_slots.length) {  // slot chhin gaya: naye samay, ek click me
+      const pick = document.createElement("div");
+      pick.className = "card-pick";
+      pick.innerHTML = `<div class="card-note">${escapeHtml(t.pick)}</div>`;
+      const chips = document.createElement("div");
+      chips.className = "card-actions";
+      for (const time of res.free_slots) {
+        const b = document.createElement("button");
+        b.className = "btn-discard"; b.textContent = fmtTime(time);
+        b.onclick = () => { pick.remove(); send(t.slotMsg(time)); };
+        chips.appendChild(b);
+      }
+      pick.appendChild(chips); card.appendChild(pick);
+    }
   } catch (e) {
     status.className = "card-status bad"; status.textContent = TEXT[state.language].fail;
     buttons.forEach((b) => (b.disabled = false));

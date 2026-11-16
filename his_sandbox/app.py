@@ -1,6 +1,15 @@
-"""HIS sandbox: slots, bookings, idempotency key, aur fault injection.
+"""Fake HIS (hospital scheduler) sandbox: alag port par chalne wali local API.
 
-    python -m his_sandbox                 # http://127.0.0.1:8900
+    python -m his_sandbox                 # http://127.0.0.1:8900   Swagger: http://127.0.0.1:8900/docs
+
+Teen mukhya endpoints (Lesson 3 ka contract):
+    GET  /v1/slots?department_id=&date=          khaali slot, har ek ka slot_id
+    POST /v1/bookings  {slot_id, patient_ref, request_id}
+                                                 201 confirmed + booking_ref, ya 409 slot_unavailable
+    GET  /v1/bookings/by-request/{request_id}    is attempt ki booking (timeout ke baad recovery)
+
+Slot claim aur booking insert ek transaction me hote hain, aur ek slot par ek hi booking database ka
+unique index pakka karta hai. Synthetic data hi istemaal karein; yeh kisi asli hospital ka system nahin.
 """
 
 import os
@@ -9,38 +18,38 @@ import threading
 import time as clock
 from contextlib import contextmanager
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from hospital_agent.his import slots as roster
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS bookings (
-    seq             INTEGER PRIMARY KEY AUTOINCREMENT,
-    reference       TEXT UNIQUE,
-    idempotency_key TEXT NOT NULL UNIQUE,
-    patient_name    TEXT NOT NULL,
-    phone           TEXT NOT NULL,
-    department_id   TEXT NOT NULL,
-    date            TEXT NOT NULL,
-    time            TEXT NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'booked'
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    booking_ref   TEXT UNIQUE,
+    request_id    TEXT NOT NULL UNIQUE,     -- ek booking attempt; retry par wahi
+    slot_id       TEXT NOT NULL,
+    patient_ref   TEXT NOT NULL,
+    department_id TEXT NOT NULL,
+    date          TEXT NOT NULL,
+    time          TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'confirmed'
 );
-CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_slot
-    ON bookings (department_id, date, time) WHERE status = 'booked';
+-- capacity 1: ek slot par ek hi confirmed booking
+CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_slot ON bookings (slot_id) WHERE status = 'confirmed';
 """
-FIELDS = ("reference", "patient_name", "phone", "department_id", "date", "time", "status")
+FIELDS = ("booking_ref", "status", "slot_id", "patient_ref", "department_id", "date", "time")
 
 
 class BookingIn(BaseModel):
-    patient_name: str = Field(min_length=1, max_length=80)
-    phone: str = Field(pattern=r"^[6-9]\d{9}$")
-    department_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
-    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    time: str = Field(pattern=r"^\d{2}:\d{2}$")
+    slot_id: str = Field(examples=["SLOT-cardiology-20261123-0900"])
+    patient_ref: str = Field(min_length=4, max_length=40, examples=["DEMO-PATIENT-001"])
+    request_id: str = Field(min_length=4, max_length=64, examples=["BOOK-REQ-001"])
 
 
 class CancelIn(BaseModel):
-    phone: str
+    patient_ref: str
 
 
 class Faults(BaseModel):
@@ -50,7 +59,7 @@ class Faults(BaseModel):
 
 def create_app(db_path: str | None = None) -> FastAPI:
     db_path = db_path or os.environ.get("HIS_SANDBOX_DB", "his_sandbox.db")
-    app = FastAPI(title="HIS sandbox (synthetic)", docs_url="/docs")
+    app = FastAPI(title="Fake HIS scheduler (synthetic sandbox)", version="1.0", docs_url="/docs")
     faults = Faults()
     lock = threading.Lock()
 
@@ -67,36 +76,50 @@ def create_app(db_path: str | None = None) -> FastAPI:
     def as_json(row) -> dict:
         return {k: row[k] for k in FIELDS}
 
-    @app.get("/v1/slots/booked")
-    def booked(department_id: str, date: str):
-        with connect() as conn:
-            rows = conn.execute("SELECT time FROM bookings WHERE department_id = ? AND date = ? AND status = 'booked'",
-                                (department_id, date)).fetchall()
-        return {"department_id": department_id, "date": date, "booked_times": sorted(r["time"] for r in rows)}
+    def by_request(conn, request_id: str):
+        return conn.execute("SELECT * FROM bookings WHERE request_id = ?", (request_id,)).fetchone()
 
-    @app.post("/v1/bookings")
-    def book(body: BookingIn, idempotency_key: str = Header(min_length=4, max_length=64)):
+    @app.get("/v1/slots", tags=["scheduler"])
+    def open_slots(department_id: str = Query(examples=["cardiology"]),
+                   date: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$", examples=["2026-11-23"])):
+        """Us din ke khaali slot. Har slot ka slot_id booking ke waqt bhejna hai."""
         with connect() as conn:
-            old = conn.execute("SELECT * FROM bookings WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
-            if old is not None:   # wahi key dobara: wahi booking, nayi nahin
-                if (old["department_id"], old["date"], old["time"], old["phone"]) != (
-                        body.department_id, body.date, body.time, body.phone):
-                    raise HTTPException(422, "idempotency key pehle kisi aur booking ke liye istemaal hui")
+            taken = {r["slot_id"] for r in conn.execute(
+                "SELECT slot_id FROM bookings WHERE department_id = ? AND date = ? AND status = 'confirmed'",
+                (department_id, date))}
+        free = [{"slot_id": sid, "time": t, "status": "open"}
+                for sid, t in roster.scheduled_slot_ids(department_id, date) if sid not in taken]
+        return {"department_id": department_id, "date": date, "slots": free}
+
+    @app.post("/v1/bookings", status_code=201, tags=["scheduler"])
+    def book(body: BookingIn):
+        """Slot book karta hai. Wahi request_id dobara aaye to nayi booking nahin, wahi purani milti hai."""
+        parsed = roster.parse_slot_id(body.slot_id)
+        if parsed is None or not roster.is_scheduled(body.slot_id):
+            return JSONResponse({"status": "slot_unavailable", "slot_id": body.slot_id,
+                                 "reason": "unknown_slot"}, status_code=409)
+        dept, date, time = parsed
+        with connect() as conn:
+            old = by_request(conn, body.request_id)
+            if old is not None:   # wahi attempt dobara: wahi booking
+                if (old["slot_id"], old["patient_ref"]) != (body.slot_id, body.patient_ref):
+                    raise HTTPException(422, "request_id pehle kisi aur booking ke liye istemaal hui")
                 return JSONResponse(as_json(old), status_code=200)
             try:
-                with conn:
+                with conn:   # slot claim + booking insert: ek transaction
                     cur = conn.execute(
-                        "INSERT INTO bookings (idempotency_key, patient_name, phone, department_id, date, time) "
+                        "INSERT INTO bookings (request_id, slot_id, patient_ref, department_id, date, time) "
                         "VALUES (?, ?, ?, ?, ?, ?)",
-                        (idempotency_key, body.patient_name, body.phone, body.department_id, body.date, body.time))
-                    conn.execute("UPDATE bookings SET reference = ? WHERE seq = ?",
-                                 (f"HIS-{cur.lastrowid:06d}", cur.lastrowid))
+                        (body.request_id, body.slot_id, body.patient_ref, dept, date, time))
+                    conn.execute("UPDATE bookings SET booking_ref = ? WHERE seq = ?",
+                                 (f"HIS-APT-{cur.lastrowid:03d}", cur.lastrowid))
             except sqlite3.IntegrityError:
-                again = conn.execute("SELECT * FROM bookings WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
+                again = by_request(conn, body.request_id)
                 if again is not None:
                     return JSONResponse(as_json(again), status_code=200)
-                return JSONResponse({"error": "slot_taken"}, status_code=409)
-            row = conn.execute("SELECT * FROM bookings WHERE idempotency_key = ?", (idempotency_key,)).fetchone()
+                return JSONResponse({"status": "slot_unavailable", "slot_id": body.slot_id,
+                                     "reason": "already_booked"}, status_code=409)
+            row = by_request(conn, body.request_id)
         with lock:
             lose = faults.lose_response_after_commit > 0
             if lose:
@@ -105,48 +128,50 @@ def create_app(db_path: str | None = None) -> FastAPI:
             clock.sleep(faults.delay_seconds)
         return JSONResponse(as_json(row), status_code=201)
 
-    @app.get("/v1/bookings/by-key/{key}")
-    def by_key(key: str):
+    @app.get("/v1/bookings/by-request/{request_id}", tags=["scheduler"])
+    def find_by_request(request_id: str):
+        """Timeout ke baad: kya is attempt ki booking HIS me bani? Bani ho to wahi reference."""
         with connect() as conn:
-            row = conn.execute("SELECT * FROM bookings WHERE idempotency_key = ?", (key,)).fetchone()
+            row = by_request(conn, request_id)
         if row is None:
             raise HTTPException(404, "not_found")
         return as_json(row)
 
-    @app.get("/v1/bookings/{reference}")
-    def get_booking(reference: str):
+    @app.get("/v1/bookings/{booking_ref}", tags=["scheduler"])
+    def get_booking(booking_ref: str):
         with connect() as conn:
-            row = conn.execute("SELECT * FROM bookings WHERE reference = ?", (reference,)).fetchone()
+            row = conn.execute("SELECT * FROM bookings WHERE booking_ref = ?", (booking_ref,)).fetchone()
         if row is None:
             raise HTTPException(404, "not_found")
         return as_json(row)
 
-    @app.post("/v1/bookings/{reference}/cancel")
-    def cancel(reference: str, body: CancelIn):
+    @app.post("/v1/bookings/{booking_ref}/cancel", tags=["scheduler"])
+    def cancel(booking_ref: str, body: CancelIn):
         with connect() as conn:
             with conn:
-                cur = conn.execute("UPDATE bookings SET status = 'cancelled' WHERE reference = ? AND phone = ?",
-                                   (reference, body.phone))
+                cur = conn.execute("UPDATE bookings SET status = 'cancelled' WHERE booking_ref = ? AND patient_ref = ?",
+                                   (booking_ref, body.patient_ref))
             if cur.rowcount != 1:
                 raise HTTPException(404, "not_found")
-            return as_json(conn.execute("SELECT * FROM bookings WHERE reference = ?", (reference,)).fetchone())
+            return as_json(conn.execute("SELECT * FROM bookings WHERE booking_ref = ?", (booking_ref,)).fetchone())
 
     # ---- sirf sandbox: test aur demo ke liye switch ----
-    @app.post("/_sandbox/faults")
+    @app.post("/_sandbox/faults", tags=["sandbox"])
     def set_faults(new: Faults):
+        """Fault injection: agli N bookings commit hongi, par jawab delay_seconds der se aayega."""
         with lock:
             faults.lose_response_after_commit = new.lose_response_after_commit
             faults.delay_seconds = new.delay_seconds
         return faults
 
-    @app.get("/_sandbox/bookings")
-    def all_bookings(department_id: str, date: str, time: str):
+    @app.get("/_sandbox/bookings", tags=["sandbox"])
+    def all_bookings(slot_id: str):
+        """Ek slot par HIS me kitni bookings hain (demo me 'sirf ek' dikhane ke liye)."""
         with connect() as conn:
-            rows = conn.execute("SELECT * FROM bookings WHERE department_id = ? AND date = ? AND time = ?",
-                                (department_id, date, time)).fetchall()
-        return [as_json(r) | {"idempotency_key": r["idempotency_key"]} for r in rows]
+            rows = conn.execute("SELECT * FROM bookings WHERE slot_id = ?", (slot_id,)).fetchall()
+        return [as_json(r) | {"request_id": r["request_id"]} for r in rows]
 
-    @app.post("/_sandbox/reset")
+    @app.post("/_sandbox/reset", tags=["sandbox"])
     def reset():
         with connect() as conn, conn:
             conn.execute("DELETE FROM bookings")

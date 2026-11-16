@@ -92,7 +92,10 @@ class ScriptedBooking(BaseLlm):
 
 
 def _booking_client():
+    from conftest import register_patient
+
     from hospital_agent.tools import FEATURE_TOOLS
+    register_patient("Asha Verma", "9876543210")
     service = InMemorySessionService()
     agent = Agent(name="appointment_desk", model=ScriptedBooking(), instruction="x",
                   tools=FEATURE_TOOLS["appointments"])

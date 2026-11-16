@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS appointments (
     time          TEXT NOT NULL,   -- hamesha HH:MM
     status        TEXT NOT NULL DEFAULT 'booked',
     created_at    TEXT NOT NULL,
-    idempotency_key TEXT          -- jis arzi (action_id) se bani; retry par wahi booking milti hai
+    idempotency_key TEXT,         -- request_id: jis arzi (action_id) se bani; retry par wahi booking milti hai
+    patient_ref   TEXT,           -- registered patient ki ID (DEMO-...)
+    slot_id       TEXT            -- SLOT-cardiology-20261123-0900
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_slot
     ON appointments (department_id, date, time) WHERE status = 'booked';
@@ -74,8 +76,9 @@ def connect(db_path: str | None = None):
 def _migrate(conn) -> None:
     """Purane hospital.db me naya column jodta hai (data nahin mitta)."""
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(appointments)")}
-    if "idempotency_key" not in columns:
-        conn.execute("ALTER TABLE appointments ADD COLUMN idempotency_key TEXT")
+    for column in ("idempotency_key", "patient_ref", "slot_id"):
+        if column not in columns:
+            conn.execute(f"ALTER TABLE appointments ADD COLUMN {column} TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_key ON appointments (idempotency_key)")
     conn.commit()
 
@@ -187,18 +190,18 @@ def insert_appointment(conn, appointment_id: str, key: str, p: dict) -> None:
     with conn:
         conn.execute(
             "INSERT INTO appointments (id, patient_name, phone, department_id, date, time, created_at, "
-            "idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "idempotency_key, patient_ref, slot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (appointment_id, p["patient_name"], p["phone"], p["department_id"], p["date"], p["time"],
-             now_text(), key),
+             now_text(), key, p["patient_ref"], p["slot_id"]),
         )
 
 
-def cancel_appointment(conn, appointment_id: str, phone: str) -> bool:
-    """Maalik (phone) dekh kar cancel. Pehle se cancelled ho to bhi True (retry safe)."""
+def cancel_appointment(conn, appointment_id: str, patient_ref: str) -> bool:
+    """Maalik (patient ID) dekh kar cancel. Pehle se cancelled ho to bhi True (retry safe)."""
     with conn:
         cur = conn.execute(
-            "UPDATE appointments SET status = 'cancelled' WHERE id = ? AND phone = ?",
-            (appointment_id, phone),
+            "UPDATE appointments SET status = 'cancelled' WHERE id = ? AND patient_ref = ?",
+            (appointment_id, patient_ref),
         )
     return cur.rowcount == 1
 
@@ -210,7 +213,16 @@ def new_patient_id() -> str:
 
 
 def find_patient(conn, phone: str, full_name: str) -> sqlite3.Row | None:
-    return conn.execute("SELECT * FROM patients WHERE phone = ? AND full_name = ?", (phone, full_name)).fetchone()
+    """Naam me chhote-bade akshar aur faltu space ka farq nahin: 'varun  singh' = 'Varun Singh'."""
+    name = " ".join(full_name.split()).lower()
+    for row in conn.execute("SELECT * FROM patients WHERE phone = ? ORDER BY created_at", (phone,)):
+        if " ".join(row["full_name"].split()).lower() == name:
+            return row
+    return None
+
+
+def get_patient(conn, patient_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
 
 
 def commit_registration(conn, action_id: str, patient_id: str, p: dict, outcome: dict) -> None:
