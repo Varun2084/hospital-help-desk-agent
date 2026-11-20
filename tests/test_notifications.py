@@ -79,7 +79,8 @@ def test_2_confirmed_change_gives_one_notification_that_opens_the_updated_appoin
     item = box["notifications"][0]
     assert item["body"]["hi"] == "आपकी अपॉइंटमेंट अपडेट हो गई है।"
     assert item["body"]["en"] == "Your appointment has been updated."
-    assert FRIDAY not in str(item) and "10:00" not in str(item)          # sandesh generic; details dashboard me
+    shown = str([item["title"], item["body"]])                            # created_at asli ghadi ka hai, use chhodo
+    assert FRIDAY not in shown and "10:00" not in shown                   # sandesh generic; details dashboard me
     assert item["destination"] == {"view": "appointment", "id": ref} and item["link"] == f"/?open=appointment:{ref}"
     opened = patient.get(f"/api/me/appointments/{ref}").json()             # link wahi protected record kholta hai
     assert (opened["date"], opened["time"]) == (FRIDAY, "10:00")
