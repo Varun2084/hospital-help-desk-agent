@@ -49,10 +49,15 @@ def current_patient(tool_context: ToolContext):
 def create_pending_action(kind: str, payload: dict, summary: dict, tool_context: ToolContext) -> dict:
     """Database me sirf arzi likhta hai. Asli kaam patient ke Confirm button ke baad hoga."""
     user_id, session_id = owner(tool_context)
+    return create_pending_for(kind, payload, summary, user_id, session_id, tool_context.invocation_id)
+
+
+def create_pending_for(kind: str, payload: dict, summary: dict, user_id: str, session_id: str,
+                       invocation_id: str) -> dict:
+    """Wahi arzi, par maalik seedha diya gaya (dashboard se: chat ka tool_context nahin hota)."""
     expires_at = (now() + timedelta(minutes=CONFIRM_WINDOW_MINUTES)).isoformat(timespec="seconds")
     with db.connect() as conn:
-        action_id = db.create_pending(conn, kind, payload, user_id, session_id,
-                                      tool_context.invocation_id, expires_at)
+        action_id = db.create_pending(conn, kind, payload, user_id, session_id, invocation_id, expires_at)
     return {
         "status": "needs_confirmation",
         "action_id": action_id,

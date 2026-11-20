@@ -9,7 +9,7 @@ import hashlib
 import json
 from datetime import datetime
 
-from hospital_agent import config, db
+from hospital_agent import config, db, reschedule
 from hospital_agent.tools import appointments, common, registration
 from hospital_agent.tools.common import error
 
@@ -18,6 +18,7 @@ HANDLERS = {
     "book": ("appointments", appointments.complete_booking),
     "cancel": ("appointments", appointments.complete_cancellation),
     "register": ("registration", registration.complete_registration),
+    "reschedule": ("appointments", reschedule.complete_reschedule),
 }
 
 

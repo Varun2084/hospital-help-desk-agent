@@ -5,7 +5,7 @@ Lab test ki do alag cheezein hain: progress (status) aur report. Status har stag
 use patient ke liye release kare. Documents hospital ke original PDF hain: model inhe na banata hai na badalta hai.
 """
 
-from hospital_agent import db
+from hospital_agent import db, notifications
 from hospital_agent.config import get_department
 
 LAB_STEPS = ["ordered", "sample_collected", "processing", "report_available"]
@@ -44,3 +44,14 @@ def prescription_pdf(patient_ref: str, prescription_id: str) -> bytes | None:
     with db.connect() as conn:
         row = db.get_prescription(conn, patient_ref, prescription_id.upper())
     return bytes(row["document_pdf"]) if row else None
+
+
+def release_lab_report(test_id: str, report_pdf: bytes) -> bool:
+    """Lab system (LIS) ka hook: report patient ke liye release. Record aur notification event ek transaction me.
+    Pehle se released ho to kuch nahin (dobara notification nahin)."""
+    with db.connect() as conn:
+        row = db.get_lab_test(conn, test_id.upper())
+        if row is None:
+            return False
+        return db.release_lab_report(conn, row["id"], report_pdf,
+                                     notifications.lab_report_released(row["id"], row["patient_ref"]))

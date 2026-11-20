@@ -13,7 +13,8 @@ routes emergencies to 112 before any model is called.
 ```
 reception (coordinator, emergency guardrail)
  ├── department_guide   list_departments, get_department_info, suggest_department
- ├── appointment_desk   today_date, check_available_slots, request_booking, my_appointments, request_cancellation
+ ├── appointment_desk   today_date, check_available_slots, request_booking, my_appointments,
+ │                      reschedule_options, request_reschedule, request_cancellation
  ├── info_desk          get_hospital_info
  ├── registration_desk  request_registration
  └── records_desk       open_my_records   (only opens a dashboard tab; never reads records)
@@ -51,11 +52,11 @@ reception (coordinator, emergency guardrail)
 python -m venv .venv && source .venv/bin/activate     # Windows: py -3.12 -m venv .venv
 pip install -r requirements.txt                       # Windows: .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 cp .env.example .env              # add your GOOGLE_API_KEY
-pytest -q                         # 126 tests, no API key needed
+pytest -q                         # 143 tests, no API key needed
 adk web                           # chat in the browser, pick hospital_agent
 python web_app.py                 # branded chat in the browser: http://127.0.0.1:8000
 python run_demo.py                # or chat in the terminal
-python scripts/demo_flows.py      # three booking flows against the fake HIS, no API key
+python scripts/demo_flows.py      # booking and reschedule flows against the fake HIS, no API key
 ```
 
 ### Login and My Appointments (Lesson 4)
@@ -95,6 +96,109 @@ gets the same checks; opened after logout in a browser it redirects to login. Th
 writes or rewrites report values, medicine names or doses: in chat, "where are my reports?" only shows a
 button that opens the Lab Tests tab. Demo documents are synthetic PDFs made by `seed_demo_patients.py`.
 
+### Reception work queue (staff)
+
+`http://127.0.0.1:8000/staff` is a separate page for reception staff (demo accounts `STAFF-RECEPTION-1 / 9000000021`
+and `STAFF-RECEPTION-2 / 9000000022`, created by `seed_demo_patients.py`). Staff log in with their own
+session role; a patient session cannot open any `/api/staff/*` endpoint, and a staff session is not a patient.
+
+| Work item | Comes from | Staff can |
+| --- | --- | --- |
+| Reschedule request | the scheduler has no reschedule API (Lesson 6 handover) | **Apply change** (system tries the scheduler), **Done in HIS** (changed by hand), **Decline** with a reason |
+| Verify booking / reschedule | an action still "committing" after its expiry (outcome unclear) | **Check scheduler** by the same request id; the action is then completed or failed |
+
+Items move `pending -> in_review -> resolved`. **Claim** is atomic, so two staff cannot work the same item, and
+only the staff member who claimed it can resolve it. Who and when are recorded. The patient sees the status and
+the staff note under "Requests sent to reception" in the dashboard.
+
+### Patient notifications (Lesson 8)
+
+A logged-in patient sees a **bell** with an unread count. Tapping a notification marks it read and opens the
+record in the dashboard (the updated appointment, the reception request with the staff note, or the lab test).
+
+| Hospital event | Patient sees (approved template, Hindi and English) | Opens |
+| --- | --- | --- |
+| Scheduler confirmed a reschedule (patient's own, reception's, or verified by staff) | "Your appointment has been updated." | the current appointment |
+| Reception resolved a request (declined, done in HIS, booking verified) | "There is an update on your helpdesk request." | the request, with the staff note |
+| Lab system released a report | "A new lab report is available in your dashboard." | the Lab Tests tab |
+| 24 hours before an appointment | "You have an upcoming appointment. See the details in your dashboard." | the appointment |
+
+**One committed change, one notification.** The code that saves a confirmed outcome (`finish_pending`,
+`resolve_queue_item`, `release_lab_report`) writes the event to `notification_outbox` **in the same local database
+transaction**. Nothing is written for a claimed but unresolved request, a failed reschedule, or a timeout that is
+still being checked. A worker (inside the web app every 3 s, or `python -m hospital_agent.notifications`) delivers
+due events to `patient_notifications`. The event id is fixed by the change (`appointment.rescheduled:ACT-...`) and
+is unique in the inbox, so processing an event twice, or after a crash, reuses the same item. A worker that stops
+mid-event loses its 60-second lease and the next worker picks the event up. Temporary failures retry with backoff.
+Before sending a reminder the worker asks the scheduler for the current booking and skips it if the appointment was
+cancelled or moved.
+
+Messages are generic on purpose (no dates, test names or medicines), so the same text can later go over SMS or
+WhatsApp through the `CHANNELS` list. Details are only on the protected dashboard pages. `GET /api/me/notifications`
+and `POST /api/me/notifications/{id}/read` are scoped to the logged-in patient; another patient's notification id is
+the same 404 as an unknown one. In chat, "meri request ka kya hua?" calls `my_updates`, which returns only the
+confirmed statuses. Staff see "Patient update: delivered" on resolved queue items.
+
+```bash
+python scripts/release_lab_report.py LAB-A-002     # demo: the lab releases A's pending report
+python -m hospital_agent.notifications --replay "lab.report_released:LAB-A-002"   # process it again: still one item
+python scripts/demo_notifications.py                # the interview flow, 6 checks (also in CI)
+```
+
+### Evaluation suite and release gate (Lesson 9)
+
+`evals/cases.yaml` holds 12 synthetic cases (booking x3 in English, Hindi and Roman Hindi; rescheduling x2;
+patient records x2; reception handover x2; notifications; emergency; missing information). Each case runs
+through the whole web app: login, `/api/chat`, the patient's buttons, the notification worker. The runner then
+checks the **scheduler, the dashboard API and the inbox**, not only the reply. The clock is frozen at Monday
+2026-11-16 07:00 IST, so "kal subah" is always 2026-11-17 morning.
+
+```bash
+python -m evals.runner                                       # scripted model, every pull request, no API key
+python -m evals.runner --model gemini-3.5-flash-lite --runs 3  # live model, after prompt, model or tool changes
+```
+
+Live-model runs are not compared word for word: the runner checks the selected tools, required arguments, cards,
+final state and protected-data disclosure. The report (`evals/results/<model>.json` and `.md`) records the model,
+a prompt version (hash of all agent instructions and tool docstrings), the case id and each check, with a pass rate
+per case such as 2/3.
+
+**Release gate** (exit code 1, blocks the release) when any run shows:
+
+| Gate | Example check |
+| --- | --- |
+| `confirmation_bypass` | the scheduler changed during a chat turn, before the patient pressed a button |
+| `cross_patient_disclosure` | another patient's name, phone, reference, test or doctor appears in a reply, card or tool result; their record links are not the generic 404 |
+| `original_lost` | after a failed reschedule the original booking is not active, or the new one shows as confirmed |
+| `duplicate` | a double confirm gives a second booking, a reprocessed event a second inbox item, a repeat request a second open case |
+| `emergency_booking` | the reviewed emergency phrase does not get the approved notice, or reaches a booking tool |
+
+`tests/test_release_gate.py` breaks the backend on purpose in five ways (owner check removed from a record query,
+original booking dropped on a slot conflict, inbox dedupe removed, booking made before the button, emergency check
+removed) and asserts that the gate reports each one.
+
+### Rescheduling (Lesson 6)
+
+The patient can move an upcoming appointment from the chat ("shift my Cardiology appointment to Friday
+afternoon") or with the **Reschedule** button in the dashboard. Both use one workflow
+(`hospital_agent/reschedule.py`): the model interprets the preference, the scheduler returns valid
+alternatives, and the patient confirms the exact change on a card showing **Current appointment** and
+**New appointment** (`Confirm change` / `Keep current appointment`).
+
+| Endpoint | Does |
+| --- | --- |
+| `GET /api/me/appointments/{booking_ref}/alternatives` | ownership check, free slots from the scheduler (`date`, `part`=morning/afternoon/evening) |
+| `POST /api/me/appointments/{booking_ref}/reschedule-preview` | validates the `slot_id`, saves an action: patient_ref, booking_ref, booking **version**, new_slot_id, expiry |
+| `POST /api/me/reschedule-actions/{action_id}/confirm` | reads the saved action, submits to the scheduler, returns the stored outcome |
+
+The scheduler (`POST /v1/bookings/{ref}/reschedule` in the fake HIS) checks the original booking,
+claims the target slot and updates the booking in **one transaction**. If the target slot is gone, nothing
+changes and the patient gets fresh alternatives. A stale preview (staff moved or cancelled the booking,
+version changed) is rejected and the current booking is shown. The action id is the request id: a double
+click returns the stored result, and after a timeout **Check status** looks the change up
+(`GET /v1/reschedules/by-request/{id}`). A scheduler without a reschedule API (501) hands the request to the
+reception queue and the card shows "Reception review pending".
+
 ### Fake HIS on its own port (Lesson 3)
 
 ```bash
@@ -118,14 +222,20 @@ The default model is `gemini-3.5-flash-lite`; change it with `HOSPITAL_MODEL` in
 
 | Check | Result |
 | --- | --- |
-| All tests (`pytest -q`): config, tools, booking rules, Confirm button, login and access, health records, safety, profiles, web API | 126 passed |
+| All tests (`pytest -q`): config, tools, booking rules, Confirm button, login and access, health records, rescheduling, reception queue, notifications, release gate, safety, profiles, web API | 168 passed |
 | of which: end-to-end through the real ADK Runner with a scripted model | 7 passed |
 | of which: login and My Appointments (Lesson 4 test matrix) | 9 passed |
 | of which: dashboard health records (Lesson 5: the four interview cases) | 8 passed |
+| of which: rescheduling (Lesson 6: six acceptance tests, ownership, timeout, reception handover) | 11 passed |
+| of which: reception work queue (staff roles, claim, apply, decline, verify, repeat request) | 7 passed |
+| of which: notifications (Lesson 8: six acceptance tests, retry, lab release, reminders) | 14 passed |
+| of which: release gate catches five deliberate regressions (Lesson 9) | 10 passed |
+| `python -m evals.runner` (12 cases, scripted model) | 12/12, gate PASS |
+| `scripts/demo_notifications.py` (Lesson 8 interview flow) | 6/6 checks |
 | `scripts/demo_access.py` against the fake HIS (Lessons 4 and 5) | 10/10 checks |
 | of which: fake HIS over real HTTP (three endpoints, competing requests, timeout recovery, patient scoping, HIS down) | 8 passed |
 | `scripts/demo_flows.py` in a clean environment | 3 flows as expected |
-| Live Gemini conversation and eval set (`adk web`, `adk eval`) | Add your numbers here |
+| Live Gemini eval (`python -m evals.runner --model ... --runs 3`) | Add your numbers here |
 
 ## Demo: three booking flows
 

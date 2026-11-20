@@ -19,3 +19,13 @@ jobs:
         run: python scripts/demo_flows.py
       - name: Login and My Appointments access checks (synthetic)
         run: python scripts/demo_access.py
+      - name: Notification flows (synthetic)
+        run: python scripts/demo_notifications.py
+      - name: Release gate (agent evaluation, scripted model)
+        run: python -m evals.runner
+      - name: Evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-scripted
+          path: evals/results/

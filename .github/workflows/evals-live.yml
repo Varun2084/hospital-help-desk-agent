@@ -1,0 +1,32 @@
+name: evals-live
+# Asli Gemini model par evaluation. Prompt, model ya tools badalne par haath se chalayein (Actions -> evals-live ->
+# Run workflow). Repo Settings -> Secrets -> Actions me GOOGLE_API_KEY chahiye. Synthetic data hi istemaal hota hai.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Gemini model id"
+        default: "gemini-3.5-flash-lite"
+      runs:
+        description: "Har case kitni baar"
+        default: "3"
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Release gate (live model)
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: python -m evals.runner --model "${{ inputs.model }}" --runs "${{ inputs.runs }}"
+      - name: Evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-live
+          path: evals/results/

@@ -2,6 +2,56 @@
 
 Har badlaav yahan likhein: kya badla, kyun, aur kaun se tests jode.
 
+## 0.14.0 (Lesson 8: patient notifications; Lesson 9: evaluation suite and release gate)
+- **Outbox:** pakka nateeja save karne wala code (`finish_pending`, `resolve_queue_item`, naya `release_lab_report`)
+  notification event `notification_outbox` me **usi transaction** me likhta hai. Claim hua par faisla baaki, reschedule
+  fail, ya timeout ki jaanch chal rahi: koi event nahin.
+- **Worker** (`hospital_agent/notifications.py`): web app ke andar har 3 second (`NOTIFY_WORKER=0` se band) ya
+  `python -m hospital_agent.notifications` (`--once`, `--replay EVENT_ID`). 60 second lease, retry backoff, 5 koshish.
+  `event_id` tay aur inbox me UNIQUE: do baar ya crash ke baad chalane par bhi ek item.
+- **Char events:** appointment.rescheduled, reception.request_resolved, lab.report_released, appointment.reminder
+  (24 ghante pehle; bhejne se pehle scheduler se jaanch, cancel ya badli appointment ka reminder skip). Hindi aur
+  English approved templates, generic sandesh; details sirf dashboard me.
+- **Patient API:** `GET /api/me/notifications`, `POST /api/me/notifications/{id}/read`, `GET /api/me/requests/{id}`,
+  sab login wale patient tak simit. UI: bell, unread badge, inbox; tap = record dashboard me highlight. Link
+  `/?open=appointment:HIS-APT-001` (doosre patient ke liye "nahin mila").
+- Chat tool `my_updates` ("meri request ka kya hua?"). Staff page par "Patient update: delivered".
+- **Reception:** usi appointment ki doosri reschedule request naya case nahin banati; naya samay khule case me
+  judta hai (`earlier_requests`).
+- **Evaluation suite** (`evals/`): 12 synthetic cases, poore web app se, tay ghadi. Scripted model (CI) aur live model
+  (`--model`, `--runs`). Report: model, prompt version, case, har check, pass rate (2/3).
+- **Release gate:** confirmation_bypass, cross_patient_disclosure, original_lost, duplicate, emergency_booking. Koi bhi
+  fail = exit 1. `tests/test_release_gate.py` paanch jaan-boojh kar todi gayi cheezon par gate ko jaanchta hai.
+- Scripts: `demo_notifications.py` (6/6, CI me), `release_lab_report.py`. Purana `evals/test_config.json` hataya.
+  Tests 143 se 168.
+
+## 0.13.0 (Reception work queue)
+- **Staff login** alag: `STAFF-...` ID + phone + code; session par role `staff`, cookie `opd_staff`. Patient ka session
+  `/api/staff/*` nahin kholta, aur staff ka session patient ke endpoints nahin. Sirf role `reception` queue dekhta hai.
+- **Do tarah ke kaam:** (1) reschedule jo scheduler khud nahin le saka (Lesson 6 handover); (2) booking ya reschedule
+  jo expiry ke baad bhi `committing` me atki hai (nateeja saaf nahin). Queue kholte hi atki arziyan apne-aap judti hain;
+  ek arzi = ek kaam.
+- **Claim -> resolve:** `pending -> in_review -> resolved`. Claim atomic (do staff ek kaam nahin le sakte); sirf claim
+  karne wala band kar sakta hai. Reschedule: Apply change / Done in HIS / Decline (wajah zaroori). Verify: Check
+  scheduler (usi request_id se), phir arzi pakki ya radd. Kaun, kab, kya: sab likha.
+- Patient dashboard me "Requests sent to reception" (sthiti aur staff ka sandesh). Naya page `/staff`.
+- `seed_demo_patients.py` me do demo staff. Tests 137 se 143.
+
+## 0.12.0 (Lesson 6: AI-assisted appointment rescheduling)
+- **Reschedule chat aur dashboard dono se, ek hi workflow** (`hospital_agent/reschedule.py`): AI pasand samajhta hai
+  ("Friday afternoon"), vikalp scheduler deta hai, badlaav patient ka "Confirm change" button karta hai.
+  Card par Current appointment aur New appointment saath; "Keep current appointment" sirf preview hatata hai.
+- Endpoints: `/api/me/appointments/{ref}/alternatives`, `/reschedule-preview`, `/api/me/reschedule-actions/{id}/confirm`
+  (aur `/discard`). Preview me patient_ref, booking_ref, booking ka **version**, new_slot_id aur expiry.
+- **Scheduler me ek transaction:** Fake HIS `POST /v1/bookings/{ref}/reschedule` aur LocalHIS: purani booking jaancho,
+  naya slot lo, booking badlo. Naya slot na mile to kuch nahin badalta (purani chalu + naye vikalp). Version alag
+  = preview purana (staff ne badla) -> radd, abhi ki booking dikhe. Reference wahi rehta hai.
+- Double click: wahi request_id, wahi nateeja. Timeout: "Verifying the change", `GET /v1/reschedules/by-request/{id}`.
+  Scheduler me API na ho (501): `reception_queue` me request, card "Reception review pending".
+- Chat tools `reschedule_options`, `request_reschedule`; dashboard me Reschedule button, Morning/Afternoon/Evening.
+- Dashboard: "Past visits" ki jagah "Past appointments" (tareekh beetna aur visit poora hona alag baat).
+- `demo_flows.py` me Flow 4 aur 5 (reschedule; slot chhina to purani chalu). Tests 126 se 137.
+
 ## 0.11.0 (Lesson 5: Patient Dashboard aur Health Records)
 - **Mera Dashboard / My Dashboard:** chat se alag screen. Upar Agli Appointment, phir teen tabs:
   Appointments (aane wali aur pichhli visit), Prescriptions (visit date, department, doctor, document),

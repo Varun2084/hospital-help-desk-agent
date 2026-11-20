@@ -28,6 +28,7 @@ class Booking:
     date: str               # YYYY-MM-DD
     time: str               # HH:MM
     status: str             # confirmed / cancelled
+    version: int = 1        # har badlaav (reschedule, staff move, cancel) par +1; purana preview pakadne ke liye
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -53,6 +54,18 @@ class BookingNotFound(HISError):
     """Is reference (aur patient) se koi booking nahin."""
 
 
+class StaleBooking(HISError):
+    """Preview banne ke baad booking badal gayi (staff ne move/cancel ki). booking = abhi ki haalat."""
+
+    def __init__(self, booking: "Booking"):
+        super().__init__(booking.reference)
+        self.booking = booking
+
+
+class RescheduleUnsupported(HISError):
+    """Is HIS me reschedule ka API nahin: kaam reception ko saunpna hai."""
+
+
 class HIS(Protocol):
     def open_slots(self, department_id: str, date: str) -> list[Slot]:
         """Us din ke khaali slot, slot_id ke saath. 'Abhi ke baad' wali jaanch agent karta hai."""
@@ -69,3 +82,12 @@ class HIS(Protocol):
         """Reference se booking, par sirf tab jab woh isi patient ki ho. Doosre ki ho to None (jaise mili hi nahin)."""
 
     def cancel(self, reference: str, patient_ref: str) -> Booking: ...
+
+    def reschedule(self, request_id: str, reference: str, patient_ref: str, expected_version: int,
+                   new_slot_id: str) -> Booking:
+        """EK transaction: purani booking jaancho (maalik, confirmed, version), naya slot lo, booking badlo.
+        Naya slot na mile to kuch nahin badalta: purani booking chalu. Wahi request_id dobara = wahi nateeja.
+        Errors: SlotTaken, StaleBooking, BookingNotFound, RescheduleUnsupported."""
+
+    def find_reschedule_by_request(self, request_id: str) -> Booking | None:
+        """Timeout ke baad: is request_id ka reschedule HIS me hua tha? Hua ho to booking ki abhi ki haalat."""

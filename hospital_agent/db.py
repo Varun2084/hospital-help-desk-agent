@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS appointments (
     created_at    TEXT NOT NULL,
     idempotency_key TEXT,         -- request_id: jis arzi (action_id) se bani; retry par wahi booking milti hai
     patient_ref   TEXT,           -- registered patient ki ID (DEMO-...)
-    slot_id       TEXT            -- SLOT-cardiology-20261123-0900
+    slot_id       TEXT,           -- SLOT-cardiology-20261123-0900
+    version       INTEGER NOT NULL DEFAULT 1   -- har badlaav par +1 (purana preview pakadne ke liye)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_slot
     ON appointments (department_id, date, time) WHERE status = 'booked';
@@ -41,6 +42,39 @@ CREATE TABLE IF NOT EXISTS patients (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_patient_per_phone_and_name ON patients (phone, full_name);
 
+-- Reschedule (Lesson 6): har request_id ek hi baar laagu hota hai (double click / retry par wahi nateeja).
+CREATE TABLE IF NOT EXISTS reschedule_requests (
+    request_id  TEXT PRIMARY KEY,
+    reference   TEXT NOT NULL,
+    new_slot_id TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+
+-- Reception ki kaam ki line: jo kaam system khud nahin kar sakta (jaise HIS me reschedule ka API nahin).
+CREATE TABLE IF NOT EXISTS reception_queue (
+    id          TEXT PRIMARY KEY,      -- REQ-...
+    kind        TEXT NOT NULL,         -- 'reschedule'
+    patient_ref TEXT NOT NULL,
+    booking_ref TEXT NOT NULL,
+    details     TEXT NOT NULL,         -- JSON: maanga gaya slot aur vikalp
+    status      TEXT NOT NULL DEFAULT 'pending',   -- pending / in_review / resolved
+    created_at  TEXT NOT NULL,
+    action_id   TEXT,                  -- jis arzi se aaya (ek arzi = ek kaam)
+    claimed_by  TEXT, claimed_at TEXT, -- kis staff ne uthaya
+    resolved_by TEXT, resolved_at TEXT,
+    resolution  TEXT,                  -- changed / changed_manually / declined / verified_done / verified_not_done
+    patient_message TEXT               -- patient ko dashboard par kya dikhe
+);
+
+-- Hospital staff (demo). Role 'reception' hi work queue khol sakta hai.
+CREATE TABLE IF NOT EXISTS staff (
+    id     TEXT PRIMARY KEY,           -- STAFF-...
+    name   TEXT NOT NULL,
+    phone  TEXT NOT NULL,
+    role   TEXT NOT NULL,              -- 'reception'
+    active INTEGER NOT NULL DEFAULT 1
+);
+
 -- Login (demo): Patient ID + phone par ek baar ka code (OTP). Code ka sirf hash rakha jaata hai.
 CREATE TABLE IF NOT EXISTS login_codes (
     patient_id  TEXT PRIMARY KEY,
@@ -55,7 +89,8 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
     patient_id  TEXT NOT NULL,
     created_at  TEXT NOT NULL,
     expires_at  TEXT NOT NULL,
-    revoked     INTEGER NOT NULL DEFAULT 0
+    revoked     INTEGER NOT NULL DEFAULT 0,
+    role        TEXT NOT NULL DEFAULT 'patient'   -- 'patient' ya 'staff': patient session staff ka kaam nahin karta
 );
 
 -- Health records (demo). Asli hospital me lab tests Lab Information System se aur prescriptions medical-record
@@ -80,6 +115,36 @@ CREATE TABLE IF NOT EXISTS prescriptions (
     doctor          TEXT NOT NULL,
     issued          INTEGER NOT NULL DEFAULT 1,   -- hospital ne issue kiya?
     document_pdf    BLOB
+);
+
+-- Lesson 8: notification outbox. Jab hospital ka pakka nateeja save hota hai, USI transaction me yahan ek event.
+-- Worker baad me (restart ke baad bhi) ise patient ke inbox tak pahunchata hai.
+CREATE TABLE IF NOT EXISTS notification_outbox (
+    event_id        TEXT PRIMARY KEY,   -- tay naam (jaise appointment.rescheduled:ACT-...): ek badlaav = ek event
+    event_type      TEXT NOT NULL,      -- appointment.rescheduled / reception.request_resolved /
+                                        -- lab.report_released / appointment.reminder
+    patient_ref     TEXT NOT NULL,
+    record_ref      TEXT NOT NULL,      -- kaunsa record khulega (appointment, request, lab test)
+    payload         TEXT NOT NULL DEFAULT '{}',
+    status          TEXT NOT NULL DEFAULT 'pending',   -- pending / processing / delivered / skipped / failed
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT NOT NULL,      -- kab bhejna hai (reminder: tay samay; retry: thoda baad)
+    locked_until    TEXT,               -- worker ne uthaya; isse pehle koi aur nahin uthata
+    last_error      TEXT,
+    created_at      TEXT NOT NULL,
+    processed_at    TEXT
+);
+-- Patient ka inbox. event_id UNIQUE: worker ek event do baar chalaye to bhi ek hi item.
+CREATE TABLE IF NOT EXISTS patient_notifications (
+    id          TEXT PRIMARY KEY,       -- NTF-...
+    event_id    TEXT NOT NULL UNIQUE,
+    patient_ref TEXT NOT NULL,
+    event_type  TEXT NOT NULL,
+    title_hi    TEXT NOT NULL, body_hi TEXT NOT NULL,   -- approved template se; record ki details nahin
+    title_en    TEXT NOT NULL, body_en TEXT NOT NULL,
+    destination TEXT NOT NULL,          -- JSON: {"view": "appointment", "id": "HIS-APT-001"} (protected page)
+    created_at  TEXT NOT NULL,
+    read_at     TEXT
 );
 
 -- Booking, cancel ya registration ki "arzi" jo patient ke Confirm button ka intezaar kar rahi hai.
@@ -120,7 +185,17 @@ def _migrate(conn) -> None:
     for column in ("idempotency_key", "patient_ref", "slot_id"):
         if column not in columns:
             conn.execute(f"ALTER TABLE appointments ADD COLUMN {column} TEXT")
+    if "version" not in columns:
+        conn.execute("ALTER TABLE appointments ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_key ON appointments (idempotency_key)")
+    if "role" not in {row["name"] for row in conn.execute("PRAGMA table_info(auth_sessions)")}:
+        conn.execute("ALTER TABLE auth_sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'patient'")
+    queue_columns = {row["name"] for row in conn.execute("PRAGMA table_info(reception_queue)")}
+    for column in ("action_id", "claimed_by", "claimed_at", "resolved_by", "resolved_at", "resolution",
+                   "patient_message"):
+        if column not in queue_columns:
+            conn.execute(f"ALTER TABLE reception_queue ADD COLUMN {column} TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_queue_item_per_action ON reception_queue (action_id)")
     conn.commit()
 
 
@@ -211,14 +286,18 @@ def mark_committing(conn, action_id: str) -> bool:
     return cur.rowcount == 1
 
 
-def finish_pending(conn, action_id: str, outcome: dict) -> None:
-    """HIS ne kaam pakka kar diya: arzi 'done', nateeja saath me."""
+def finish_pending(conn, action_id: str, outcome: dict, events: list[dict] = ()) -> None:
+    """HIS ne kaam pakka kar diya: arzi 'done', nateeja saath me. Notification events (outbox) ISI transaction
+    me: nateeja save hua to event bhi; nahin hua to koi nahin."""
     with conn:
-        conn.execute(
+        cur = conn.execute(
             "UPDATE pending_actions SET status = 'done', outcome = ? "
             "WHERE id = ? AND status IN ('pending', 'committing')",
             (json.dumps(outcome, ensure_ascii=False), action_id),
         )
+        if cur.rowcount == 1:
+            for event in events:
+                add_outbox_event(conn, event)
 
 
 # ---------- appointments (LocalHIS inhe istemaal karta hai) ----------
@@ -300,10 +379,11 @@ def delete_login_code(conn, patient_id: str) -> None:
         conn.execute("DELETE FROM login_codes WHERE patient_id = ?", (patient_id,))
 
 
-def create_auth_session(conn, token_hash: str, patient_id: str, expires_at: str) -> None:
+def create_auth_session(conn, token_hash: str, patient_id: str, expires_at: str, role: str = "patient") -> None:
+    """patient_id column me login karne wale ki ID (patient ya staff); role batata hai kaun."""
     with conn:
-        conn.execute("INSERT INTO auth_sessions (token_hash, patient_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-                     (token_hash, patient_id, now_text(), expires_at))
+        conn.execute("INSERT INTO auth_sessions (token_hash, patient_id, created_at, expires_at, role) "
+                     "VALUES (?, ?, ?, ?, ?)", (token_hash, patient_id, now_text(), expires_at, role))
 
 
 def get_auth_session(conn, token_hash: str) -> sqlite3.Row | None:
@@ -362,3 +442,211 @@ def save_prescription(conn, row: dict) -> None:
         conn.execute("INSERT OR REPLACE INTO prescriptions (id, patient_ref, visit_ref, visit_date, department_id, "
                      "doctor, issued, document_pdf) VALUES (:id, :patient_ref, :visit_ref, :visit_date, "
                      ":department_id, :doctor, :issued, :document_pdf)", row)
+
+
+# ---------- reschedule (LocalHIS) aur reception queue ----------
+
+def find_reschedule(conn, request_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM reschedule_requests WHERE request_id = ?", (request_id,)).fetchone()
+
+
+def reschedule_appointment(conn, request_id: str, reference: str, expected_version: int, new_slot_id: str,
+                           date: str, time: str) -> bool:
+    """EK transaction: booking ko naye slot par le jao (sirf agar version wahi ho) aur request_id yaad rakho.
+    Naya slot kisi aur ka ho to unique index IntegrityError deta hai aur poora transaction wapas: purani booking
+    jaisi thi waisi."""
+    with conn:
+        cur = conn.execute(
+            "UPDATE appointments SET slot_id = ?, date = ?, time = ?, version = version + 1 "
+            "WHERE id = ? AND version = ? AND status = 'booked'",
+            (new_slot_id, date, time, reference, expected_version))
+        if cur.rowcount != 1:
+            return False
+        conn.execute("INSERT INTO reschedule_requests (request_id, reference, new_slot_id, created_at) "
+                     "VALUES (?, ?, ?, ?)", (request_id, reference, new_slot_id, now_text()))
+    return True
+
+
+def staff_move(conn, reference: str, new_slot_id: str, date: str, time: str) -> None:
+    """Sirf demo/test: staff ne booking khud badli (version +1)."""
+    with conn:
+        conn.execute("UPDATE appointments SET slot_id = ?, date = ?, time = ?, version = version + 1 WHERE id = ?",
+                     (new_slot_id, date, time, reference))
+
+
+def add_to_reception_queue(conn, kind: str, patient_ref: str, booking_ref: str, details: dict,
+                           action_id: str | None = None) -> str:
+    """Naya kaam. Ek arzi (action_id) se ek hi kaam: dobara aaye to purana hi lautao."""
+    if action_id:
+        old = conn.execute("SELECT id FROM reception_queue WHERE action_id = ?", (action_id,)).fetchone()
+        if old:
+            return old["id"]
+    item_id = "REQ-" + uuid.uuid4().hex[:8].upper()
+    with conn:
+        conn.execute("INSERT INTO reception_queue (id, kind, patient_ref, booking_ref, details, created_at, action_id, "
+                     "patient_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                     (item_id, kind, patient_ref, booking_ref, json.dumps(details, ensure_ascii=False), now_text(),
+                      action_id, "Reception review pending"))
+    return item_id
+
+
+def reception_queue(conn, status: str | None = None) -> list[sqlite3.Row]:
+    if status:
+        return conn.execute("SELECT * FROM reception_queue WHERE status = ? ORDER BY created_at", (status,)).fetchall()
+    return conn.execute("SELECT * FROM reception_queue ORDER BY created_at").fetchall()
+
+
+def get_queue_item(conn, item_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM reception_queue WHERE id = ?", (item_id,)).fetchone()
+
+
+def claim_queue_item(conn, item_id: str, staff_id: str) -> bool:
+    """Sirf 'pending' kaam uthaya ja sakta hai: do staff ek saath dabayein to ek hi ko milta hai."""
+    with conn:
+        cur = conn.execute("UPDATE reception_queue SET status = 'in_review', claimed_by = ?, claimed_at = ? "
+                           "WHERE id = ? AND status = 'pending'", (staff_id, now_text(), item_id))
+    return cur.rowcount == 1
+
+
+def resolve_queue_item(conn, item_id: str, staff_id: str, resolution: str, patient_message: str,
+                       events: list[dict] = ()) -> bool:
+    """Sirf wahi staff band kar sakta hai jisne uthaya. Patient ki notification ka event isi transaction me."""
+    with conn:
+        cur = conn.execute("UPDATE reception_queue SET status = 'resolved', resolved_by = ?, resolved_at = ?, "
+                           "resolution = ?, patient_message = ? WHERE id = ? AND status = 'in_review' "
+                           "AND claimed_by = ?",
+                           (staff_id, now_text(), resolution, patient_message, item_id, staff_id))
+        if cur.rowcount == 1:
+            for event in events:
+                add_outbox_event(conn, event)
+    return cur.rowcount == 1
+
+
+def queue_items_for_patient(conn, patient_ref: str) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM reception_queue WHERE patient_ref = ? ORDER BY created_at DESC",
+                        (patient_ref,)).fetchall()
+
+
+def stuck_actions(conn, older_than: str) -> list[sqlite3.Row]:
+    """HIS ko bheji gayi par nateeja saaf nahin ('committing') aur expiry ke baad bhi wahi: staff jaanchega."""
+    return conn.execute("SELECT * FROM pending_actions WHERE status = 'committing' AND expires_at < ? "
+                        "AND kind IN ('book', 'reschedule')", (older_than,)).fetchall()
+
+
+# ---------- staff ----------
+
+def get_staff(conn, staff_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM staff WHERE id = ? AND active = 1", (staff_id,)).fetchone()
+
+
+def save_staff(conn, staff_id: str, name: str, phone: str, role: str = "reception") -> None:
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO staff (id, name, phone, role, active) VALUES (?, ?, ?, ?, 1)",
+                     (staff_id, name, phone, role))
+
+
+# ---------- notifications (Lesson 8): outbox aur patient inbox ----------
+
+def add_outbox_event(conn, event: dict) -> None:
+    """Commit NAHIN karta: bulane wale ke transaction ka hissa. Wahi event_id dobara aaye to kuch nahin."""
+    conn.execute("INSERT OR IGNORE INTO notification_outbox (event_id, event_type, patient_ref, record_ref, payload, "
+                 "next_attempt_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (event["event_id"], event["event_type"], event["patient_ref"], event["record_ref"],
+                  json.dumps(event.get("payload", {}), ensure_ascii=False), event["due_at"], now_text()))
+
+
+def get_outbox_event(conn, event_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM notification_outbox WHERE event_id = ?", (event_id,)).fetchone()
+
+
+def claim_due_events(conn, now: str, lease_until: str, limit: int) -> list[sqlite3.Row]:
+    """Jinka samay aa gaya (ya jinka pichhla worker beech me ruk gaya), unhe uthao. Har event ek hi worker ko."""
+    rows = conn.execute("SELECT event_id FROM notification_outbox WHERE (status = 'pending' AND next_attempt_at <= ?) "
+                        "OR (status = 'processing' AND locked_until < ?) ORDER BY next_attempt_at LIMIT ?",
+                        (now, now, limit)).fetchall()
+    claimed = []
+    for row in rows:
+        with conn:
+            cur = conn.execute("UPDATE notification_outbox SET status = 'processing', locked_until = ?, "
+                               "attempts = attempts + 1 WHERE event_id = ? AND ((status = 'pending' AND "
+                               "next_attempt_at <= ?) OR (status = 'processing' AND locked_until < ?))",
+                               (lease_until, row["event_id"], now, now))
+        if cur.rowcount == 1:
+            claimed.append(get_outbox_event(conn, row["event_id"]))
+    return claimed
+
+
+def finish_event(conn, event_id: str, status: str, note: str | None = None) -> None:
+    with conn:
+        conn.execute("UPDATE notification_outbox SET status = ?, locked_until = NULL, last_error = ?, processed_at = ? "
+                     "WHERE event_id = ?", (status, note, now_text(), event_id))
+
+
+def retry_event(conn, event_id: str, next_attempt_at: str, error: str, give_up: bool) -> None:
+    with conn:
+        conn.execute("UPDATE notification_outbox SET status = ?, locked_until = NULL, next_attempt_at = ?, "
+                     "last_error = ? WHERE event_id = ?",
+                     ("failed" if give_up else "pending", next_attempt_at, error[:300], event_id))
+
+
+def insert_notification(conn, row: dict) -> tuple[sqlite3.Row, bool]:
+    """Inbox me item. Is event_id ka item pehle se ho to wahi (naya nahin). (item, naya_bana?)"""
+    with conn:
+        cur = conn.execute("INSERT OR IGNORE INTO patient_notifications (id, event_id, patient_ref, event_type, "
+                           "title_hi, body_hi, title_en, body_en, destination, created_at) VALUES (:id, :event_id, "
+                           ":patient_ref, :event_type, :title_hi, :body_hi, :title_en, :body_en, :destination, "
+                           ":created_at)", row)
+    item = conn.execute("SELECT * FROM patient_notifications WHERE event_id = ?", (row["event_id"],)).fetchone()
+    return item, cur.rowcount == 1
+
+
+def list_notifications(conn, patient_ref: str, limit: int = 50) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM patient_notifications WHERE patient_ref = ? ORDER BY created_at DESC, id DESC "
+                        "LIMIT ?", (patient_ref, limit)).fetchall()
+
+
+def mark_notification_read(conn, patient_ref: str, notification_id: str) -> sqlite3.Row | None:
+    """Sirf apni notification. Doosre ki ID: None (anjaan ID jaisa hi jawab)."""
+    with conn:
+        conn.execute("UPDATE patient_notifications SET read_at = COALESCE(read_at, ?) WHERE id = ? AND patient_ref = ?",
+                     (now_text(), notification_id, patient_ref))
+    return conn.execute("SELECT * FROM patient_notifications WHERE id = ? AND patient_ref = ?",
+                        (notification_id, patient_ref)).fetchone()
+
+
+def release_lab_report(conn, test_id: str, report_pdf: bytes, event: dict) -> bool:
+    """Lab system ne report release ki: record aur notification event EK transaction me."""
+    with conn:
+        cur = conn.execute("UPDATE lab_tests SET status = 'report_available', report_released = 1, report_pdf = ? "
+                           "WHERE id = ? AND report_released = 0", (report_pdf, test_id))
+        if cur.rowcount == 1:
+            add_outbox_event(conn, event)
+    return cur.rowcount == 1
+
+
+def get_lab_test(conn, test_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM lab_tests WHERE id = ?", (test_id,)).fetchone()
+
+
+def outbox_status(conn, event_ids: list[str]) -> str | None:
+    """In event_ids me se jo bana ho uski sthiti (staff ko: patient tak update pahuncha ya nahin)."""
+    row = conn.execute(f"SELECT status FROM notification_outbox WHERE event_id IN ({','.join('?' * len(event_ids))}) "
+                       "LIMIT 1", event_ids).fetchone()
+    return row["status"] if row else None
+
+
+def open_queue_item(conn, kind: str, patient_ref: str, booking_ref: str) -> sqlite3.Row | None:
+    """Isi patient ki isi booking ka khula (pending / in_review) kaam, agar ho."""
+    return conn.execute("SELECT * FROM reception_queue WHERE kind = ? AND patient_ref = ? AND booking_ref = ? "
+                        "AND status IN ('pending', 'in_review') ORDER BY created_at LIMIT 1",
+                        (kind, patient_ref, booking_ref)).fetchone()
+
+
+def update_queue_request(conn, item_id: str, details: dict) -> None:
+    """Patient ne usi appointment ke liye naya samay maanga: wahi kaam, nayi jaankari (pehli arzi ki id rehti hai)."""
+    old = json.loads(get_queue_item(conn, item_id)["details"])
+    details = {**details, "action_id": old.get("action_id"), "earlier_requests": old.get("earlier_requests", [])
+               + [old.get("requested")]}
+    with conn:
+        conn.execute("UPDATE reception_queue SET details = ? WHERE id = ?",
+                     (json.dumps(details, ensure_ascii=False), item_id))

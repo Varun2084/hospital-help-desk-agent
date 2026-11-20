@@ -27,6 +27,11 @@ from hospital_agent.his import slots  # noqa: E402
 from hospital_agent.records_pdf import make_pdf  # noqa: E402
 from hospital_agent.tools import common  # noqa: E402
 
+DEMO_STAFF = [  # (staff ID, naam, phone): Reception desk (/staff) ke liye
+    ("STAFF-RECEPTION-1", "Demo Receptionist 1", "9000000021"),
+    ("STAFF-RECEPTION-2", "Demo Receptionist 2", "9000000022"),
+]
+
 DEMO_PATIENTS = [  # (patient ID, naam, phone, booking ka samay)
     ("DEMO-PATIENT-A", "Demo Patient A", "9000000011", "09:00"),
     ("DEMO-PATIENT-B", "Demo Patient B", "9000000012", "09:30"),
@@ -102,6 +107,9 @@ def seed() -> dict:
                 conn.execute("INSERT INTO patients (id, full_name, age, gender, phone, city, guardian_name, "
                              "created_at) VALUES (?, ?, 35, 'Other', ?, 'Rewa', NULL, ?)",
                              (pid, name, phone, db.now_text()))
+    with db.connect() as conn:
+        for sid, name, phone in DEMO_STAFF:
+            db.save_staff(conn, sid, name, phone)
     system = his.get_his()
     past = past_opd_day()
     seed_records(past)
@@ -124,4 +132,6 @@ if __name__ == "__main__":
     for (pid, name, phone, _), ref in zip(DEMO_PATIENTS, seed().values(), strict=True):
         print(f"{name:<15} Patient ID {pid:<15} phone {phone}   Cardiology booking {ref}")
     print("Records: A -> LAB-A-001 (report), LAB-A-002 (processing), RX-A-001;  B -> LAB-B-001, RX-B-001")
+    print("Staff (Reception desk: http://127.0.0.1:8000/staff): "
+          + ", ".join(f"{sid} / {phone}" for sid, _, phone in DEMO_STAFF))
     print("\nLogin: Patient ID + phone -> screen par demo code. Patient B ka reference Patient A ke login me 404 dega.")

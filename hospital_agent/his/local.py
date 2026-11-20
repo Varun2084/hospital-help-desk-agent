@@ -4,7 +4,7 @@ import sqlite3
 
 from hospital_agent import db
 from hospital_agent.his import slots
-from hospital_agent.his.base import Booking, BookingNotFound, Slot, SlotTaken
+from hospital_agent.his.base import Booking, BookingNotFound, Slot, SlotTaken, StaleBooking
 
 STATUS = {"booked": "confirmed", "cancelled": "cancelled"}   # local table ke shabd -> HIS ke shabd
 
@@ -13,7 +13,7 @@ def _booking(row) -> Booking:
     return Booking(reference=row["id"], patient_ref=row["patient_ref"] or "",
                    slot_id=row["slot_id"] or slots.make_slot_id(row["department_id"], row["date"], row["time"]),
                    department_id=row["department_id"], date=row["date"], time=row["time"],
-                   status=STATUS.get(row["status"], row["status"]))
+                   status=STATUS.get(row["status"], row["status"]), version=row["version"] or 1)
 
 
 class LocalHIS:
@@ -63,3 +63,33 @@ class LocalHIS:
             if not db.cancel_appointment(conn, reference, patient_ref):
                 raise BookingNotFound(reference)
             return _booking(db.get_appointment(conn, reference))
+
+    def reschedule(self, request_id: str, reference: str, patient_ref: str, expected_version: int,
+                   new_slot_id: str) -> Booking:
+        if not slots.is_scheduled(new_slot_id):
+            raise SlotTaken(new_slot_id)
+        dept, date, time = slots.parse_slot_id(new_slot_id)
+        with db.connect() as conn:
+            done = db.find_reschedule(conn, request_id)
+            if done is not None:   # wahi request dobara (double click / retry): wahi nateeja
+                return _booking(db.get_appointment(conn, done["reference"]))
+            row = db.find_appointment_for_patient(conn, patient_ref, reference)
+            if row is None:
+                raise BookingNotFound(reference)
+            if row["status"] != "booked" or (row["version"] or 1) != expected_version:
+                raise StaleBooking(_booking(row))
+            if row["department_id"] != dept:
+                raise SlotTaken(new_slot_id)
+            try:
+                changed = db.reschedule_appointment(conn, request_id, reference, expected_version, new_slot_id,
+                                                    date, time)
+            except sqlite3.IntegrityError as e:   # naya slot kisi aur ka: kuch nahin badla
+                raise SlotTaken(new_slot_id) from e
+            if not changed:
+                raise StaleBooking(_booking(db.get_appointment(conn, reference)))
+            return _booking(db.get_appointment(conn, reference))
+
+    def find_reschedule_by_request(self, request_id: str) -> Booking | None:
+        with db.connect() as conn:
+            done = db.find_reschedule(conn, request_id)
+            return _booking(db.get_appointment(conn, done["reference"])) if done else None

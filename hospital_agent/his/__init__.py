@@ -14,8 +14,10 @@ from hospital_agent.his.base import (  # noqa: F401
     HISError,
     HISTimeout,
     HISUnavailable,
+    RescheduleUnsupported,
     Slot,
     SlotTaken,
+    StaleBooking,
 )
 from hospital_agent.his.http import HttpHIS
 from hospital_agent.his.local import LocalHIS

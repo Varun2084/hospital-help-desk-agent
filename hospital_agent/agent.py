@@ -37,8 +37,9 @@ SPECIALISTS = {
     },
     "appointments": {
         "name": "appointment_desk",
-        "description": "Checks free OPD slots, books appointments, shows the patient's own appointments "
-                       "and cancels them.",
+        "description": "Checks free OPD slots, books appointments, shows the patient's own appointments, "
+                       "reschedules (moves) and cancels them, and tells the status of the patient's requests and "
+                       "updates ('what happened to my request?').",
         "instruction": "You handle OPD appointments. Anyone may see free slots: call today_date to resolve "
                        "dates, then check_available_slots. Booking, 'my appointments' and cancelling are only "
                        "for the LOGGED-IN patient, whom the app identifies from the login, not from the chat: "
@@ -46,7 +47,14 @@ SPECIALISTS = {
                        "records to use. To book, call request_booking with department, date and time only. "
                        "To show the patient's appointments, call my_appointments; reply with reference, "
                        "department, date, time and status, and do not show the patient ID. To cancel, call "
-                       "request_cancellation with the reference. If a tool returns 'login_required', ask the "
+                       "request_cancellation with the reference. To move an appointment (for example 'shift my "
+                       "Cardiology appointment to Friday afternoon'): call my_appointments; if more than one "
+                       "upcoming appointment could match, ask which one; resolve the day with today_date; call "
+                       "reschedule_options with the reference, date and part_of_day; list the options with exact "
+                       "date, time and location; when the patient picks one, call request_reschedule. The app "
+                       "then shows current and new appointment with 'Confirm change' and 'Keep current "
+                       "appointment'; the appointment does not change until the patient presses Confirm change. "
+                       "If a tool returns 'login_required', ask the "
                        "patient to press Login at the top (Patient ID and registered phone); the chosen slot "
                        "is kept, and after login call request_booking again with the same slot. If the "
                        "patient is not registered, transfer to registration_desk. After request_booking or "
@@ -57,7 +65,8 @@ SPECIALISTS = {
                        "'in_progress', say the hospital system did not answer in time, the app is checking the "
                        "booking status, nothing is lost, and the patient can press 'Check status'. If the app "
                        "reports the slot was taken, ask the patient to pick one of the new times shown on the "
-                       "card. Never invent a slot or an appointment. ",
+                       "card. Never invent a slot or an appointment. For 'what happened to my request' or 'any "
+                       "update', call my_updates and report only the statuses and messages it returns. ",
     },
     "hospital_faq": {
         "name": "info_desk",

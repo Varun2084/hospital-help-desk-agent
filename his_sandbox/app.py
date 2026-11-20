@@ -7,6 +7,7 @@ Teen mukhya endpoints (Lesson 3 ka contract):
     POST /v1/bookings  {slot_id, patient_ref, request_id}
                                                  201 confirmed + booking_ref, ya 409 slot_unavailable
     GET  /v1/bookings/by-request/{request_id}    is attempt ki booking (timeout ke baad recovery)
+Lesson 6: POST /v1/bookings/{booking_ref}/reschedule aur GET /v1/reschedules/by-request/{request_id}
 
 Slot claim aur booking insert ek transaction me hote hain, aur ek slot par ek hi booking database ka
 unique index pakka karta hai. Synthetic data hi istemaal karein; yeh kisi asli hospital ka system nahin.
@@ -34,12 +35,19 @@ CREATE TABLE IF NOT EXISTS bookings (
     department_id TEXT NOT NULL,
     date          TEXT NOT NULL,
     time          TEXT NOT NULL,
-    status        TEXT NOT NULL DEFAULT 'confirmed'
+    status        TEXT NOT NULL DEFAULT 'confirmed',
+    version       INTEGER NOT NULL DEFAULT 1   -- har badlaav par +1
+);
+-- Reschedule ki har request_id ek hi baar laagu (double click / retry par wahi nateeja)
+CREATE TABLE IF NOT EXISTS reschedules (
+    request_id  TEXT PRIMARY KEY,
+    booking_ref TEXT NOT NULL,
+    new_slot_id TEXT NOT NULL
 );
 -- capacity 1: ek slot par ek hi confirmed booking
 CREATE UNIQUE INDEX IF NOT EXISTS one_booking_per_slot ON bookings (slot_id) WHERE status = 'confirmed';
 """
-FIELDS = ("booking_ref", "status", "slot_id", "patient_ref", "department_id", "date", "time")
+FIELDS = ("booking_ref", "status", "slot_id", "patient_ref", "department_id", "date", "time", "version")
 
 
 class BookingIn(BaseModel):
@@ -52,9 +60,22 @@ class CancelIn(BaseModel):
     patient_ref: str
 
 
+class RescheduleIn(BaseModel):
+    request_id: str = Field(min_length=4, max_length=64, examples=["RESCHED-REQ-001"])
+    patient_ref: str = Field(min_length=4, max_length=40, examples=["DEMO-PATIENT-A"])
+    expected_version: int = Field(ge=1, examples=[1])
+    new_slot_id: str = Field(examples=["SLOT-cardiology-20261127-1430"])
+
+
+class StaffMove(BaseModel):
+    booking_ref: str
+    new_slot_id: str
+
+
 class Faults(BaseModel):
     lose_response_after_commit: int = Field(0, ge=0, description="Agli N bookings: commit karo, phir jawab der se do")
     delay_seconds: float = Field(5.0, ge=0, le=60)
+    reschedule_unsupported: bool = Field(False, description="Asli HIS jaisa jisme reschedule ka API nahin (501)")
 
 
 def create_app(db_path: str | None = None) -> FastAPI:
@@ -68,6 +89,8 @@ def create_app(db_path: str | None = None) -> FastAPI:
         conn = sqlite3.connect(db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.executescript(SCHEMA)
+        if "version" not in {c["name"] for c in conn.execute("PRAGMA table_info(bookings)")}:
+            conn.execute("ALTER TABLE bookings ADD COLUMN version INTEGER NOT NULL DEFAULT 1")   # purana db
         try:
             yield conn
         finally:
@@ -120,13 +143,69 @@ def create_app(db_path: str | None = None) -> FastAPI:
                 return JSONResponse({"status": "slot_unavailable", "slot_id": body.slot_id,
                                      "reason": "already_booked"}, status_code=409)
             row = by_request(conn, body.request_id)
+        lose_response_maybe()
+        return JSONResponse(as_json(row), status_code=201)
+
+    def lose_response_maybe():
         with lock:
             lose = faults.lose_response_after_commit > 0
             if lose:
                 faults.lose_response_after_commit -= 1
-        if lose:   # booking ho chuki hai, par jawab client ke timeout ke baad pahunchega
+        if lose:   # kaam ho chuka hai, par jawab client ke timeout ke baad pahunchega
             clock.sleep(faults.delay_seconds)
-        return JSONResponse(as_json(row), status_code=201)
+
+    @app.post("/v1/bookings/{booking_ref}/reschedule", tags=["scheduler"])
+    def reschedule(booking_ref: str, body: RescheduleIn):
+        """EK transaction: purani booking jaancho (maalik, confirmed, version), naya slot lo, booking badlo.
+        Naya slot na mile (409) to kuch nahin badalta. Version alag (412) = preview ke baad booking badal gayi.
+        Reference wahi rehta hai. Wahi request_id dobara = wahi nateeja."""
+        if faults.reschedule_unsupported:
+            return JSONResponse({"status": "not_supported"}, status_code=501)
+        parsed = roster.parse_slot_id(body.new_slot_id)
+        if parsed is None or not roster.is_scheduled(body.new_slot_id):
+            return JSONResponse({"status": "slot_unavailable", "reason": "unknown_slot"}, status_code=409)
+        dept, date, time = parsed
+        with connect() as conn:
+            done = conn.execute("SELECT * FROM reschedules WHERE request_id = ?", (body.request_id,)).fetchone()
+            if done is not None:
+                if (done["booking_ref"], done["new_slot_id"]) != (booking_ref, body.new_slot_id):
+                    raise HTTPException(422, "request_id pehle kisi aur badlaav ke liye istemaal hui")
+                row = conn.execute("SELECT * FROM bookings WHERE booking_ref = ?", (booking_ref,)).fetchone()
+                return JSONResponse(as_json(row), status_code=200)
+            row = conn.execute("SELECT * FROM bookings WHERE booking_ref = ? AND patient_ref = ?",
+                               (booking_ref, body.patient_ref)).fetchone()
+            if row is None:
+                raise HTTPException(404, "not_found")
+            if row["status"] != "confirmed" or row["version"] != body.expected_version:
+                return JSONResponse({"status": "stale", "booking": as_json(row)}, status_code=412)
+            if row["department_id"] != dept:
+                return JSONResponse({"status": "slot_unavailable", "reason": "other_department"}, status_code=409)
+            try:
+                with conn:   # target slot claim + booking update + request yaad: sab ek saath, ya kuch nahin
+                    cur = conn.execute(
+                        "UPDATE bookings SET slot_id = ?, date = ?, time = ?, version = version + 1 "
+                        "WHERE booking_ref = ? AND version = ? AND status = 'confirmed'",
+                        (body.new_slot_id, date, time, booking_ref, body.expected_version))
+                    if cur.rowcount != 1:
+                        raise sqlite3.IntegrityError("stale")
+                    conn.execute("INSERT INTO reschedules (request_id, booking_ref, new_slot_id) VALUES (?, ?, ?)",
+                                 (body.request_id, booking_ref, body.new_slot_id))
+            except sqlite3.IntegrityError:
+                return JSONResponse({"status": "slot_unavailable", "reason": "already_booked"}, status_code=409)
+            row = conn.execute("SELECT * FROM bookings WHERE booking_ref = ?", (booking_ref,)).fetchone()
+        lose_response_maybe()
+        return JSONResponse(as_json(row), status_code=200)
+
+    @app.get("/v1/reschedules/by-request/{request_id}", tags=["scheduler"])
+    def reschedule_by_request(request_id: str):
+        """Timeout ke baad: kya is request_id ka reschedule hua? Hua ho to booking ki abhi ki haalat."""
+        with connect() as conn:
+            done = conn.execute("SELECT * FROM reschedules WHERE request_id = ?", (request_id,)).fetchone()
+            row = done and conn.execute("SELECT * FROM bookings WHERE booking_ref = ?",
+                                        (done["booking_ref"],)).fetchone()
+        if not row:
+            raise HTTPException(404, "not_found")
+        return as_json(row)
 
     @app.get("/v1/bookings/by-request/{request_id}", tags=["scheduler"])
     def find_by_request(request_id: str):
@@ -172,6 +251,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
         with lock:
             faults.lose_response_after_commit = new.lose_response_after_commit
             faults.delay_seconds = new.delay_seconds
+            faults.reschedule_unsupported = new.reschedule_unsupported
         return faults
 
     @app.get("/_sandbox/bookings", tags=["sandbox"])
@@ -180,6 +260,15 @@ def create_app(db_path: str | None = None) -> FastAPI:
         with connect() as conn:
             rows = conn.execute("SELECT * FROM bookings WHERE slot_id = ?", (slot_id,)).fetchall()
         return [as_json(r) | {"request_id": r["request_id"]} for r in rows]
+
+    @app.post("/_sandbox/staff-move", tags=["sandbox"])
+    def staff_move(move: StaffMove):
+        """Demo/test: staff ne appointment khud doosre slot par daal di (version +1)."""
+        dept, date, time = roster.parse_slot_id(move.new_slot_id)
+        with connect() as conn, conn:
+            conn.execute("UPDATE bookings SET slot_id = ?, date = ?, time = ?, version = version + 1 "
+                         "WHERE booking_ref = ?", (move.new_slot_id, date, time, move.booking_ref))
+        return {"ok": True}
 
     @app.post("/_sandbox/reset", tags=["sandbox"])
     def reset():

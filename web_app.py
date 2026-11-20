@@ -5,8 +5,10 @@
 GOOGLE_API_KEY .env file me honi chahiye (dekhein .env.example).
 """
 
+import asyncio
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -23,7 +25,7 @@ from google.genai import types  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from starlette.concurrency import run_in_threadpool  # noqa: E402
 
-from hospital_agent import auth, db, his, records  # noqa: E402
+from hospital_agent import auth, db, his, notifications, reception, records, reschedule  # noqa: E402
 from hospital_agent.agent import app as adk_app  # noqa: E402
 from hospital_agent.cards import cards_from_event, record_outcome  # noqa: E402
 from hospital_agent.config import load_hospital_info  # noqa: E402
@@ -34,6 +36,7 @@ from hospital_agent.tools.common import AUTH_KEY  # noqa: E402
 
 STATIC_DIR = Path(__file__).parent / "static"
 COOKIE = "opd_session"
+STAFF_COOKIE = "opd_staff"   # staff ka alag cookie; role server par session me likha
 OWNER_KEY = "session_owner"   # login ke baad yeh baat-cheet kis patient ki hai (server likhta hai)
 
 
@@ -42,11 +45,31 @@ def current_patient(request: Request):
     return auth.patient_for_token(request.cookies.get(COOKIE))
 
 
+def require_staff(request: Request):
+    """Authorization: sirf staff session (role 'staff') aur role 'reception'. Patient cookie yahan kuch nahin kholta."""
+    staff = auth.staff_for_token(request.cookies.get(STAFF_COOKIE))
+    if staff is None:
+        raise HTTPException(status_code=401, detail="Staff login required")
+    if staff["role"] != "reception":
+        raise HTTPException(status_code=403, detail="Reception role required")
+    return staff
+
+
 def require_patient(request: Request):
     patient = current_patient(request)
     if patient is None:
         raise HTTPException(status_code=401, detail="Login required")
     return patient
+
+
+async def _notify_loop(interval: float | None = None) -> None:
+    interval = interval or float(os.environ.get("NOTIFY_INTERVAL", "3"))
+    while True:
+        try:
+            await run_in_threadpool(notifications.run_once)
+        except Exception as e:  # noqa: BLE001  worker ruk na jaaye; event database me safe hain
+            print(f"notification worker: {type(e).__name__}: {e}")
+        await asyncio.sleep(interval)
 
 
 def _kind(action_id: str) -> str:
@@ -80,9 +103,32 @@ class LoginStart(BaseModel):
     phone: str = Field(pattern=r"^[6-9]\d{9}$")
 
 
+class StaffLoginStart(BaseModel):
+    staff_id: str = Field(min_length=6, max_length=40)
+    phone: str = Field(pattern=r"^[6-9]\d{9}$")
+
+
+class StaffLoginVerify(BaseModel):
+    staff_id: str = Field(min_length=6, max_length=40)
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class Resolve(BaseModel):
+    decision: str = Field(pattern="^(apply|done_manually|decline|check)$")
+    note: str = Field(default="", max_length=300)
+
+
 class LoginVerify(BaseModel):
     patient_id: str = Field(min_length=4, max_length=40)
     code: str = Field(pattern=r"^\d{6}$")
+
+
+class PreviewRequest(BaseModel):
+    slot_id: str = Field(min_length=10, max_length=80)
+
+
+class DashboardAction(BaseModel):
+    fingerprint: str = Field(min_length=8, max_length=64)
 
 
 class ActionRequest(BaseModel):
@@ -97,11 +143,98 @@ def create_app(runner: Runner | None = None, session_service=None) -> FastAPI:
     session_service = session_service or DatabaseSessionService(db_url="sqlite+aiosqlite:///sessions.db")
     runner = runner or Runner(app=adk_app, session_service=session_service)
     app_name = runner.app_name
-    web = FastAPI(title="OPD Sahayak", docs_url=None, redoc_url=None)
+
+    @asynccontextmanager
+    async def lifespan(_):
+        """Notification worker app ke saath chalta hai (NOTIFY_WORKER=0 se band; tab alag process:
+        python -m hospital_agent.notifications). Event database me hain, isliye restart par kuch nahin khota."""
+        task = asyncio.create_task(_notify_loop()) if os.environ.get("NOTIFY_WORKER", "1") == "1" else None
+        yield
+        if task:
+            task.cancel()
+
+    web = FastAPI(title="OPD Sahayak", docs_url=None, redoc_url=None, lifespan=lifespan)
 
     @web.get("/")
     async def index():
         return FileResponse(STATIC_DIR / "index.html")
+
+    @web.get("/staff")
+    async def staff_page():
+        return FileResponse(STATIC_DIR / "staff.html")
+
+    # ---------- Reception work queue (staff) ----------
+    @web.post("/api/staff/login/start")
+    async def staff_login_start(req: StaffLoginStart):
+        result = auth.start_staff_login(req.staff_id, req.phone)
+        if result["status"] != "code_sent":
+            raise HTTPException(status_code=400, detail=result["message"])
+        return result
+
+    @web.post("/api/staff/login/verify")
+    async def staff_login_verify(req: StaffLoginVerify, response: Response):
+        token = auth.verify_login(req.staff_id, req.code, role="staff")
+        if token is None:
+            raise HTTPException(status_code=400, detail="Code galat hai ya purana ho gaya.")
+        response.set_cookie(STAFF_COOKIE, token, max_age=auth.SESSION_HOURS * 3600, httponly=True,
+                            samesite="strict", secure=os.environ.get("COOKIE_SECURE") == "1")
+        staff = auth.staff_for_token(token)
+        return {"staff_id": staff["id"], "name": staff["name"], "role": staff["role"]}
+
+    @web.post("/api/staff/logout")
+    async def staff_logout(request: Request, response: Response):
+        auth.logout(request.cookies.get(STAFF_COOKIE))
+        response.delete_cookie(STAFF_COOKIE)
+        return {"ok": True}
+
+    @web.get("/api/staff/me")
+    async def staff_me(request: Request):
+        staff = require_staff(request)
+        return {"staff_id": staff["id"], "name": staff["name"], "role": staff["role"]}
+
+    @web.get("/api/staff/queue")
+    async def staff_queue(request: Request, status: str = ""):
+        require_staff(request)
+        return {"items": await run_in_threadpool(reception.queue, status or None)}
+
+    @web.post("/api/staff/queue/{item_id}/claim")
+    async def staff_claim(item_id: str, request: Request):
+        staff = require_staff(request)
+        result = reception.claim(item_id, staff["id"])
+        if result["status"] != "ok":
+            raise HTTPException(status_code=409, detail=result["message"])
+        return result
+
+    @web.post("/api/staff/queue/{item_id}/resolve")
+    async def staff_resolve(item_id: str, req: Resolve, request: Request):
+        staff = require_staff(request)
+        return await run_in_threadpool(reception.resolve, item_id, staff["id"], req.decision, req.note)
+
+    @web.get("/api/me/requests")
+    async def my_requests(request: Request):
+        """Patient: apni requests ki sthiti (Reception review pending / hal)."""
+        return {"requests": reception.requests_for_patient(require_patient(request)["id"])}
+
+    # ---------- Notifications (Lesson 8): bell aur inbox, sirf apne ----------
+    @web.get("/api/me/notifications")
+    async def my_notifications(request: Request):
+        return notifications.inbox(require_patient(request)["id"])
+
+    @web.post("/api/me/notifications/{notification_id}/read")
+    async def read_notification(notification_id: str, request: Request):
+        item = notifications.mark_read(require_patient(request)["id"], notification_id)
+        if item is None:   # anjaan ya doosre patient ki: ek jaisa jawab
+            raise HTTPException(status_code=404, detail="Notification not found")
+        return item
+
+    @web.get("/api/me/requests/{item_id}")
+    async def my_request(item_id: str, request: Request):
+        """Notification se khulne wala request record (staff ka faisla aur agla kadam)."""
+        mine = reception.requests_for_patient(require_patient(request)["id"])
+        found = [r for r in mine if r["id"] == item_id.strip().upper()]
+        if not found:
+            raise HTTPException(status_code=404, detail="Request not found")
+        return found[0]
 
     @web.get("/api/info")
     async def info():
@@ -158,6 +291,42 @@ def create_app(runner: Runner | None = None, session_service=None) -> FastAPI:
         if booking is None:   # anjaan ya doosre patient ka: ek jaisa jawab, kuch disclose nahin
             raise HTTPException(status_code=404, detail="Appointment not found")
         return appointment_view(booking)
+
+    # ---------- Reschedule (Lesson 6): dashboard aur chat ek hi workflow ----------
+    @web.get("/api/me/appointments/{booking_ref}/alternatives")
+    async def reschedule_alternatives(booking_ref: str, request: Request, date: str = "", part: str = "any"):
+        patient = require_patient(request)
+        result = await run_in_threadpool(reschedule.alternatives, patient["id"], booking_ref, date, part)
+        if result["status"] == "error" and result["message"] == reschedule.NOT_FOUND:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        return result
+
+    @web.post("/api/me/appointments/{booking_ref}/reschedule-preview")
+    async def reschedule_preview(booking_ref: str, req: PreviewRequest, request: Request):
+        """Chuna slot jaanch kar arzi (preview). Appointment abhi nahin badalti."""
+        patient = require_patient(request)
+        result = await run_in_threadpool(reschedule.create_preview, patient["id"], booking_ref, req.slot_id,
+                                         *reschedule.dashboard_owner(patient["id"]))
+        if result["status"] == "error" and result["message"] == reschedule.NOT_FOUND:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        if result["status"] != "needs_confirmation":
+            raise HTTPException(status_code=409, detail=result["message"])
+        return {k: result[k] for k in ("action_id", "kind", "summary", "expires_at", "fingerprint")}
+
+    @web.post("/api/me/reschedule-actions/{action_id}/confirm")
+    async def reschedule_confirm(action_id: str, req: DashboardAction, request: Request):
+        """Confirm change: values saved arzi se (patient, booking, version, naya slot); browser se sirf fingerprint."""
+        patient = require_patient(request)
+        user_id, session_id, _ = reschedule.dashboard_owner(patient["id"])
+        return {"result": await run_in_threadpool(confirm_pending, action_id, user_id, session_id, req.fingerprint,
+                                                  patient["id"])}
+
+    @web.post("/api/me/reschedule-actions/{action_id}/discard")
+    async def reschedule_keep(action_id: str, request: Request):
+        """Keep current appointment: sirf preview hatata hai."""
+        patient = require_patient(request)
+        user_id, session_id, _ = reschedule.dashboard_owner(patient["id"])
+        return {"result": await run_in_threadpool(discard_pending, action_id, user_id, session_id)}
 
     # ---------- Health records (Lesson 5): list + protected documents ----------
     def _document(request: Request, pdf_for, record_id: str, filename: str):

@@ -6,6 +6,8 @@
 1. Normal booking: card par scheduler ka reference (HIS-APT-001)
 2. Ek hi slot par do patient ek saath: sirf ek jeetta hai, doosre ko naye khaali samay milte hain
 3. HIS ne booking save ki par jawab kho gaya (timeout); usi request_id se wahi reference wapas milta hai
+4. Reschedule (Lesson 6): khaali slot par badlaav; reference wahi, purana slot khaali
+5. Reschedule: preview ke baad naya slot kisi aur ne liya; purani appointment chalu, naye vikalp
 
 Saara data synthetic hai. request_booking wahi tool hai jo agent bulata hai, aur confirm_pending wahi
 function jo web app ka Confirm button bulata hai. Model ke bina, taaki demo har baar ek jaisa chale.
@@ -31,6 +33,7 @@ import httpx  # noqa: E402
 from google.genai import types  # noqa: E402
 
 from his_sandbox.server import SandboxServer  # noqa: E402
+from hospital_agent import reschedule  # noqa: E402
 from hospital_agent.config import get_department  # noqa: E402
 from hospital_agent.tools import common  # noqa: E402
 from hospital_agent.tools.actions import confirm_pending  # noqa: E402
@@ -137,7 +140,34 @@ def main() -> None:
         rows = his_rows(sandbox, pending)
         print(f"  Fake HIS me asal me: {[(r['booking_ref'], r['request_id']) for r in rows]}")
         show("Status jaanchein (wahi request_id)", confirm())
-        print(f"  Fake HIS me is slot ki bookings: {len(his_rows(sandbox, pending))}  (doosri nahin bani)")
+        print(f"  Fake HIS me is slot ki bookings: {len(his_rows(sandbox, pending))}  (doosri nahin bani)\n")
+
+        print("FLOW 4: reschedule, khaali slot par")
+        a_ref = LOGGED_IN["patient_A"]
+        ref = "HIS-APT-001"   # Flow 1 wali Patient A ki booking
+        options = reschedule.alternatives(a_ref, ref)["alternatives"]
+        target = next(o for o in options if o["date"] != date)
+        card = reschedule.create_preview(a_ref, ref, target["slot_id"], "patient_A", "s-patient_A", "turn-9")
+        s = card["summary"]
+        print(f"  {'Preview (Current -> New)':<34} {s['current_date']} {s['current_time']}  ->  "
+              f"{s['new_date']} {s['new_time']}   (abhi kuch nahin badla)")
+        done = confirm_pending(card["action_id"], "patient_A", "s-patient_A", card["fingerprint"], a_ref)
+        print(f"  {'Confirm change':<34} {({k: done[k] for k in ('status', 'appointment_id', 'date', 'time')})}")
+        freed = slots[0] in check_available_slots(DEPT, date)["free_slots"]
+        print(f"  Purana slot {date} {slots[0]} ab khaali: {freed}\n")
+
+        print("FLOW 5: reschedule, preview ke baad naya slot kisi aur ne le liya")
+        options = reschedule.alternatives(a_ref, ref)["alternatives"]
+        target = options[0]
+        card = reschedule.create_preview(a_ref, ref, target["slot_id"], "patient_A", "s-patient_A", "turn-10")
+        before = reschedule.alternatives(a_ref, ref)["current"]
+        _, confirm_d = book("patient_D", "Demo Patient D", "9000000004", target["date"], target["time"])
+        confirm_d()   # Patient D ne beech me wahi slot le liya
+        result = confirm_pending(card["action_id"], "patient_A", "s-patient_A", card["fingerprint"], a_ref)
+        show("Confirm change", {k: result[k] for k in ("status", "message")})
+        after = reschedule.alternatives(a_ref, ref)["current"]
+        print(f"  Purani appointment chalu: {(before['date'], before['time']) == (after['date'], after['time'])}"
+              f"   naye vikalp: {[o['time'] for o in result['alternatives'][:4]]}")
 
 
 if __name__ == "__main__":

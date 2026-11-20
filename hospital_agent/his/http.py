@@ -5,6 +5,9 @@ Sandbox ka contract (asli vendor ke naam aur fields uski API documentation se mi
     POST /v1/bookings  {slot_id, patient_ref, request_id}
                                                  201 confirmed + booking_ref, ya 409 slot_unavailable
     GET  /v1/bookings/by-request/{request_id}    is attempt ki booking, agar HIS me bani ho
+    POST /v1/bookings/{booking_ref}/reschedule  {request_id, patient_ref, expected_version, new_slot_id}
+                                                 200 badla, 409 naya slot nahin, 412 booking badal chuki, 501 API nahin
+    GET  /v1/reschedules/by-request/{request_id} timeout ke baad reschedule ka nateeja
     GET  /v1/patients/{patient_ref}/bookings     sirf is patient ki bookings
     GET  /v1/patients/{patient_ref}/bookings/{booking_ref}   doosre patient ki ho to 404
     POST /v1/bookings/{booking_ref}/cancel  {patient_ref}
@@ -20,8 +23,10 @@ from hospital_agent.his.base import (
     HISError,
     HISTimeout,
     HISUnavailable,
+    RescheduleUnsupported,
     Slot,
     SlotTaken,
+    StaleBooking,
 )
 
 
@@ -41,7 +46,7 @@ class HttpHIS:
     def _booking(data: dict) -> Booking:
         return Booking(reference=data["booking_ref"], slot_id=data["slot_id"], patient_ref=data["patient_ref"],
                        department_id=data["department_id"], date=data["date"], time=data["time"],
-                       status=data["status"])
+                       status=data["status"], version=data.get("version", 1))
 
     def open_slots(self, department_id: str, date: str) -> list[Slot]:
         r = self._call("GET", "/v1/slots", params={"department_id": department_id, "date": date})
@@ -86,4 +91,29 @@ class HttpHIS:
             raise BookingNotFound(reference)
         if r.status_code != 200:
             raise HISError(f"cancel: HTTP {r.status_code}")
+        return self._booking(r.json())
+
+    def reschedule(self, request_id: str, reference: str, patient_ref: str, expected_version: int,
+                   new_slot_id: str) -> Booking:
+        body = {"request_id": request_id, "patient_ref": patient_ref, "expected_version": expected_version,
+                "new_slot_id": new_slot_id}
+        r = self._call("POST", f"/v1/bookings/{reference}/reschedule", json=body)
+        if r.status_code == 200:
+            return self._booking(r.json())
+        if r.status_code == 409:
+            raise SlotTaken(new_slot_id)
+        if r.status_code == 412:
+            raise StaleBooking(self._booking(r.json()["booking"]))
+        if r.status_code == 404:
+            raise BookingNotFound(reference)
+        if r.status_code in (405, 501):
+            raise RescheduleUnsupported(reference)
+        raise HISError(f"reschedule: HTTP {r.status_code}")
+
+    def find_reschedule_by_request(self, request_id: str) -> Booking | None:
+        r = self._call("GET", f"/v1/reschedules/by-request/{request_id}")
+        if r.status_code == 404:
+            return None
+        if r.status_code != 200:
+            raise HISError(f"find_reschedule_by_request: HTTP {r.status_code}")
         return self._booking(r.json())

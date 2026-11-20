@@ -7,7 +7,7 @@
 <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="/static/style.css?v=0.11.0">
+<link rel="stylesheet" href="/static/style.css?v=0.14.0">
 </head>
 <body>
 <div class="app">
@@ -21,12 +21,22 @@
     </div>
     <div class="actions">
       <span class="who" id="who" hidden></span>
+      <button class="ghost bell" id="bellBtn" hidden aria-haspopup="true" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2z" fill="currentColor"/></svg>
+        <span class="badge" id="bellCount" hidden></span>
+      </button>
       <button class="ghost" id="apptsBtn" hidden></button>
       <button class="ghost primary" id="loginBtn"></button>
       <button class="ghost" id="langBtn" hidden></button>
       <button class="ghost" id="newBtn" hidden data-t="new">नई बातचीत</button>
     </div>
   </header>
+
+  <!-- Notification inbox (Lesson 8): sirf generic sandesh; tap karne par dashboard ka protected record -->
+  <section id="inbox" class="inbox" hidden aria-live="polite">
+    <div class="inbox-head"><b id="inboxTitle"></b><button type="button" class="ghost small" id="inboxClose"></button></div>
+    <div id="inboxList"></div>
+  </section>
 
   <div class="sos" role="note">
     <span class="dot"></span>
@@ -95,6 +105,6 @@
 
   <footer class="foot" data-t="foot">यह डॉक्टर नहीं है और बीमारी या दवा नहीं बताता। · This is not a doctor and does not diagnose.</footer>
 </div>
-<script src="/static/app.js?v=0.11.0"></script>
+<script src="/static/app.js?v=0.14.0"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@ from datetime import time as Time
 
 from google.adk.tools import ToolContext
 
-from hospital_agent import db, his
+from hospital_agent import db, his, notifications
 from hospital_agent.config import feature_required, get_department
 from hospital_agent.safety import mask_phone
 from hospital_agent.tools import common
@@ -246,7 +246,7 @@ def complete_booking(conn, action_id: str, p: dict, moment: datetime) -> dict:
             return {"status": "in_progress", "action_id": action_id, "message": IN_PROGRESS}
         if existing is not None:
             outcome = _booked_outcome(existing, recovered=True)
-            db.finish_pending(conn, action_id, outcome)
+            db.finish_pending(conn, action_id, outcome, notifications.booked(existing))
             return outcome
         # HIS me is request_id ki booking nahin bani: wahi request_id ke saath dobara bhejna surakshit hai
 
@@ -274,7 +274,7 @@ def complete_booking(conn, action_id: str, p: dict, moment: datetime) -> dict:
         db.fail_pending(conn, action_id, outcome)
         return outcome
     outcome = _booked_outcome(booking)
-    db.finish_pending(conn, action_id, outcome)
+    db.finish_pending(conn, action_id, outcome, notifications.booked(booking))   # reminder ka event, usi transaction me
     return outcome
 
 

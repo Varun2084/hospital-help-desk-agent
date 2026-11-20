@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reception desk · OPD Sahayak</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/static/style.css?v=0.14.0">
+</head>
+<body>
+<div class="app staff-app">
+  <header class="top">
+    <div class="brand">
+      <img src="/static/logo.svg" alt="" class="logo">
+      <div><div class="name">Reception desk</div><div class="sub" id="hospital">OPD Sahayak · staff</div></div>
+    </div>
+    <div class="actions">
+      <span class="who" id="who" hidden></span>
+      <button class="ghost" id="refresh" hidden>Refresh</button>
+      <button class="ghost primary" id="logout" hidden>Log out</button>
+    </div>
+  </header>
+
+  <main id="login" class="dash">
+    <div class="rec staff-login">
+      <h2>Staff login</h2>
+      <p class="doc-note">Sirf reception staff. Patient ka login yahan kaam nahin karta.</p>
+      <label>Staff ID<input id="sid" placeholder="STAFF-RECEPTION-1" autocomplete="off"></label>
+      <label>Registered mobile<input id="sphone" placeholder="9000000021" inputmode="numeric" maxlength="10"></label>
+      <div id="scodeBox" hidden><div class="demo-code" id="sdemo"></div><label>6-digit code<input id="scode" inputmode="numeric" maxlength="6"></label></div>
+      <div class="dlg-error" id="serr"></div>
+      <button class="btn-confirm" id="snext">Send code</button>
+    </div>
+  </main>
+
+  <main id="desk" class="dash" hidden>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-status="pending">Pending</button>
+      <button class="tab" data-status="in_review">In review</button>
+      <button class="tab" data-status="resolved">Resolved</button>
+      <button class="tab" data-status="">All</button>
+    </nav>
+    <section id="items" class="tab-panel"></section>
+  </main>
+
+  <footer class="foot">Demo: synthetic patients only. Har faisla staff ID aur samay ke saath likha jaata hai.</footer>
+</div>
+<script src="/static/staff.js?v=0.14.0"></script>
+</body>
+</html>

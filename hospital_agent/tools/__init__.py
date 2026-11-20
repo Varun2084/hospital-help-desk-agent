@@ -24,10 +24,13 @@ from hospital_agent.tools.departments import (
 from hospital_agent.tools.faq import get_hospital_info
 from hospital_agent.tools.records import open_my_records
 from hospital_agent.tools.registration import request_registration
+from hospital_agent.tools.reschedule import request_reschedule, reschedule_options
+from hospital_agent.tools.updates import my_updates
 
 FEATURE_TOOLS = {
     "department_guide": [list_departments, get_department_info, suggest_department],
-    "appointments": [today_date, check_available_slots, request_booking, my_appointments, request_cancellation],
+    "appointments": [today_date, check_available_slots, request_booking, my_appointments, reschedule_options,
+                     request_reschedule, request_cancellation, my_updates],
     "hospital_faq": [get_hospital_info],
     "health_records": [open_my_records],
     "registration": [request_registration],
